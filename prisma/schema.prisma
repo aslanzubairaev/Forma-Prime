@@ -17,14 +17,14 @@ enum ActivityLevel {
   SEDENTARY
   LIGHT
   MODERATE
-  ACTIVE
-  VERY_ACTIVE
+  HIGH
 }
 
 enum GoalType {
   FAT_LOSS
   MAINTENANCE
   MUSCLE_GAIN
+  RECOMPOSITION
 }
 
 enum FoodEntrySource {
@@ -39,12 +39,36 @@ enum WorkoutSessionStatus {
   CANCELLED
 }
 
+enum BodyweightCheckinSource {
+  MANUAL
+  WEEKLY_CHECKIN
+}
+
+enum CheckinStatusLabel {
+  ON_TRACK
+  NEEDS_CONSISTENCY
+  INSUFFICIENT_DATA
+}
+
 enum ConversationStep {
   IDLE
-  ONBOARDING
+  ONBOARDING_LANGUAGE
+  ONBOARDING_GENDER
+  ONBOARDING_AGE
+  ONBOARDING_HEIGHT
+  ONBOARDING_WEIGHT
+  ONBOARDING_ACTIVITY
+  ONBOARDING_GOAL
+  ONBOARDING_TRAINING_DAYS
+  ONBOARDING_CONFIRMATION
   FOOD_ENTRY
   WORKOUT_ENTRY
-  BODYWEIGHT_CHECKIN
+  WEIGHT_ENTRY
+  CHECKIN_WEIGHT
+  CHECKIN_NUTRITION
+  CHECKIN_TRAINING
+  CHECKIN_ENERGY
+  CHECKIN_NOTES
 }
 
 model User {
@@ -59,39 +83,127 @@ model User {
 
   profile            Profile?
   nutritionTarget    NutritionTarget?
+  mealEntries        MealEntry[]
   foodEntries        FoodEntry[]
   workoutSplits      WorkoutSplit[]
   workoutSessions    WorkoutSession[]
   progressRules      ProgressRule[]
   bodyweightCheckins BodyweightCheckin[]
+  weeklyCheckins     WeeklyCheckin[]
   conversationState  ConversationState?
 }
 
 model Profile {
-  id            String         @id @default(cuid())
-  userId        String         @unique
-  gender        Gender         @default(UNSPECIFIED)
-  birthDate     DateTime?
-  heightCm      Int?
-  activityLevel ActivityLevel?
-  goalType      GoalType?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id                   String         @id @default(cuid())
+  userId               String         @unique
+  gender               Gender         @default(UNSPECIFIED)
+  age                  Int?
+  heightCm             Int?
+  currentWeightKg      Decimal?       @db.Decimal(6, 2)
+  activityLevel        ActivityLevel?
+  goalType             GoalType?
+  trainingDaysPerWeek  Int?
+  preferredLanguage    String         @default("en")
+  onboardingCompletedAt DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model NutritionTarget {
-  id           String   @id @default(cuid())
-  userId       String   @unique
-  calories     Int?
-  proteinGrams Int?
-  fatGrams     Int?
-  carbGrams    Int?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  caloriesTarget    Int      @default(0)
+  proteinTargetG    Int      @default(0)
+  fatTargetG        Int      @default(0)
+  carbsTargetG      Int      @default(0)
+  goalType          GoalType @default(MAINTENANCE)
+  calculationMethod String   @default("MIFFLIN_ST_JEOR")
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NutritionFood {
+  id                 String                 @id @default(cuid())
+  slug               String                 @unique
+  nameRu             String
+  nameEn             String
+  category           String
+  baseAmount         Int                    @default(100)
+  baseUnit           String                 @default("g")
+  caloriesPer100g    Decimal                @db.Decimal(8, 2)
+  proteinPer100g     Decimal                @db.Decimal(8, 2)
+  fatPer100g         Decimal                @db.Decimal(8, 2)
+  carbsPer100g       Decimal                @db.Decimal(8, 2)
+  sourceType         String?
+  sourceName         String?
+  sourceUrl          String?
+  sourceUpdatedAt    DateTime?
+  isVerified         Boolean                @default(false)
+  isActive           Boolean                @default(true)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  aliases            NutritionFoodAlias[]
+  mealItems          MealEntryItem[]
+}
+
+model NutritionFoodAlias {
+  id                 String        @id @default(cuid())
+  foodId             String
+  alias              String
+  languageCode       String
+  normalizedAlias    String
+  createdAt          DateTime      @default(now())
+
+  food               NutritionFood @relation(fields: [foodId], references: [id], onDelete: Cascade)
+
+  @@index([foodId])
+  @@index([normalizedAlias])
+}
+
+model MealEntry {
+  id                 String          @id @default(cuid())
+  userId             String
+  telegramUserId     BigInt
+  consumedAt         DateTime        @default(now())
+  rawText            String
+  totalCalories      Decimal         @db.Decimal(10, 2)
+  totalProteinG      Decimal         @db.Decimal(10, 2)
+  totalFatG          Decimal         @db.Decimal(10, 2)
+  totalCarbsG        Decimal         @db.Decimal(10, 2)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items              MealEntryItem[]
+
+  @@index([userId, consumedAt])
+}
+
+model MealEntryItem {
+  id                 String        @id @default(cuid())
+  mealEntryId        String
+  foodId             String
+  matchedName        String
+  quantity           Decimal       @db.Decimal(10, 2)
+  unit               String
+  grams              Decimal       @db.Decimal(10, 2)
+  calories           Decimal       @db.Decimal(10, 2)
+  proteinG           Decimal       @db.Decimal(10, 2)
+  fatG               Decimal       @db.Decimal(10, 2)
+  carbsG             Decimal       @db.Decimal(10, 2)
+  createdAt          DateTime      @default(now())
+
+  mealEntry          MealEntry     @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
+  food               NutritionFood @relation(fields: [foodId], references: [id], onDelete: Restrict)
+
+  @@index([mealEntryId])
+  @@index([foodId])
 }
 
 model FoodEntry {
@@ -219,6 +331,7 @@ model BodyweightCheckin {
   userId    String
   checkedAt DateTime @default(now())
   weightKg  Decimal  @db.Decimal(6, 2)
+  source    BodyweightCheckinSource @default(MANUAL)
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -226,6 +339,24 @@ model BodyweightCheckin {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, checkedAt])
+}
+
+model WeeklyCheckin {
+  id                  String             @id @default(cuid())
+  userId              String
+  weekStartDate       DateTime
+  weightKg            Decimal            @db.Decimal(6, 2)
+  nutritionAdherence  Int
+  trainingAdherence   Int
+  energy              Int
+  notes               String?
+  statusLabel         CheckinStatusLabel @default(INSUFFICIENT_DATA)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, weekStartDate])
 }
 
 model ConversationState {

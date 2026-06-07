@@ -40,6 +40,24 @@ export async function setConversationState(
   });
 }
 
+export async function claimConversationStep(
+  userId: string,
+  step: ConversationStep,
+): Promise<boolean> {
+  const result = await prisma.conversationState.updateMany({
+    where: {
+      userId,
+      step,
+    },
+    data: {
+      step: ConversationStep.IDLE,
+      payload: emptyPayload,
+    },
+  });
+
+  return result.count === 1;
+}
+
 export async function resetConversationState(userId: string): Promise<void> {
   await setConversationState(userId, ConversationStep.IDLE);
 }
