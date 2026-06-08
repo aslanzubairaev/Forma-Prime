@@ -50,6 +50,12 @@ enum CheckinStatusLabel {
   INSUFFICIENT_DATA
 }
 
+enum ReminderType {
+  FOOD_LOG
+  WORKOUT_LOG
+  WEEKLY_CHECKIN
+}
+
 enum ConversationStep {
   IDLE
   ONBOARDING_LANGUAGE
@@ -69,6 +75,10 @@ enum ConversationStep {
   CHECKIN_TRAINING
   CHECKIN_ENERGY
   CHECKIN_NOTES
+  REMINDER_TYPE
+  REMINDER_ACTION
+  REMINDER_WEEKDAY
+  REMINDER_TIME
 }
 
 model User {
@@ -90,6 +100,7 @@ model User {
   progressRules      ProgressRule[]
   bodyweightCheckins BodyweightCheckin[]
   weeklyCheckins     WeeklyCheckin[]
+  reminderPreferences ReminderPreference[]
   conversationState  ConversationState?
 }
 
@@ -357,6 +368,25 @@ model WeeklyCheckin {
   user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, weekStartDate])
+}
+
+model ReminderPreference {
+  id          String       @id @default(cuid())
+  userId      String
+  type        ReminderType
+  isEnabled   Boolean      @default(false)
+  hourLocal   Int
+  minuteLocal Int
+  daysOfWeek  Int[]        @default([])
+  lastSentAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@index([isEnabled, hourLocal, minuteLocal])
 }
 
 model ConversationState {
