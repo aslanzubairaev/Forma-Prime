@@ -1,7 +1,11 @@
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../db/prisma.js";
-import type { CalculatedMeal, CalculatedMealTotals } from "../nutrition/food.types.js";
+import type {
+  CalculatedMeal,
+  CalculatedMealTotals,
+  RecentFood,
+} from "../nutrition/food.types.js";
 import { getUserTimeZone, getZonedDayRange } from "../time/timezone.js";
 
 export type CreateMealEntryInput = {
@@ -48,21 +52,34 @@ export function buildMealEntryCreateData(
     totalFatG: input.meal.totals.fatG,
     totalCarbsG: input.meal.totals.carbsG,
     items: {
-      create: input.meal.items.map((item) => ({
-        food: {
-          connect: {
-            id: item.food.id,
-          },
-        },
-        matchedName: item.matchedName,
-        quantity: item.quantity,
-        unit: item.unit,
-        grams: item.grams,
-        calories: item.calories,
-        proteinG: item.proteinG,
-        fatG: item.fatG,
-        carbsG: item.carbsG,
-      })),
+      create: input.meal.items.map((item) => {
+        const data: Prisma.MealEntryItemCreateWithoutMealEntryInput = {
+          matchedName: item.matchedName,
+          quantity: item.quantity,
+          unit: item.unit,
+          grams: item.grams,
+          calories: item.calories,
+          proteinG: item.proteinG,
+          fatG: item.fatG,
+          carbsG: item.carbsG,
+        };
+
+        if (item.food.isCustom) {
+          data.customFood = {
+            connect: {
+              id: item.food.id,
+            },
+          };
+        } else {
+          data.food = {
+            connect: {
+              id: item.food.id,
+            },
+          };
+        }
+
+        return data;
+      }),
     },
   };
 }
@@ -160,6 +177,182 @@ export function sumDailyTotals(
       carbsG: 0,
     },
   );
+}
+
+export async function getRecentFoods(
+  userId: string,
+  limit = 5,
+): Promise<RecentFood[]> {
+  const items = await prisma.mealEntryItem.findMany({
+    where: {
+      mealEntry: {
+        userId,
+      },
+      OR: [
+        {
+          foodId: {
+            not: null,
+          },
+        },
+        {
+          customFoodId: {
+            not: null,
+          },
+        },
+      ],
+    },
+    include: {
+      mealEntry: true,
+    },
+    orderBy: [
+      {
+        mealEntry: {
+          consumedAt: "desc",
+        },
+      },
+      {
+        createdAt: "desc",
+      },
+    ],
+    take: 50,
+  });
+  const seen = new Set<string>();
+  const result: RecentFood[] = [];
+
+  for (const item of items) {
+    const key = item.customFoodId
+      ? `custom:${item.customFoodId}`
+      : `food:${item.foodId}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push({
+      id: item.id,
+      name: item.matchedName,
+      grams: Number(item.grams),
+      calories: Number(item.calories),
+      proteinG: Number(item.proteinG),
+      fatG: Number(item.fatG),
+      carbsG: Number(item.carbsG),
+      consumedAt: item.mealEntry.consumedAt,
+    });
+
+    if (result.length >= limit) {
+      break;
+    }
+  }
+
+  return result;
+}
+
+export async function quickRelogMeal(input: {
+  userId: string;
+  telegramUserId: bigint;
+  mealEntryItemId: string;
+  consumedAt?: Date;
+}) {
+  const item = await prisma.mealEntryItem.findFirst({
+    where: {
+      id: input.mealEntryItemId,
+      mealEntry: {
+        userId: input.userId,
+      },
+    },
+  });
+
+  if (!item || (!item.foodId && !item.customFoodId)) {
+    return null;
+  }
+
+  const createDataInput: {
+    userId: string;
+    telegramUserId: bigint;
+    sourceItem: MealEntryItemMacroSource;
+    consumedAt?: Date;
+  } = {
+    userId: input.userId,
+    telegramUserId: input.telegramUserId,
+    sourceItem: item,
+  };
+
+  if (input.consumedAt !== undefined) {
+    createDataInput.consumedAt = input.consumedAt;
+  }
+
+  return prisma.mealEntry.create({
+    data: buildQuickRelogMealEntryCreateData(createDataInput),
+    include: {
+      items: true,
+    },
+  });
+}
+
+type DecimalInput = Prisma.Decimal | number | string;
+
+type MealEntryItemMacroSource = {
+  foodId: string | null;
+  customFoodId: string | null;
+  matchedName: string;
+  quantity: DecimalInput;
+  unit: string;
+  grams: DecimalInput;
+  calories: DecimalInput;
+  proteinG: DecimalInput;
+  fatG: DecimalInput;
+  carbsG: DecimalInput;
+};
+
+export function buildQuickRelogMealEntryCreateData(input: {
+  userId: string;
+  telegramUserId: bigint;
+  sourceItem: MealEntryItemMacroSource;
+  consumedAt?: Date;
+}): Prisma.MealEntryCreateInput {
+  const itemData: Prisma.MealEntryItemCreateWithoutMealEntryInput = {
+    matchedName: input.sourceItem.matchedName,
+    quantity: input.sourceItem.quantity,
+    unit: input.sourceItem.unit,
+    grams: input.sourceItem.grams,
+    calories: input.sourceItem.calories,
+    proteinG: input.sourceItem.proteinG,
+    fatG: input.sourceItem.fatG,
+    carbsG: input.sourceItem.carbsG,
+  };
+
+  if (input.sourceItem.customFoodId) {
+    itemData.customFood = {
+      connect: {
+        id: input.sourceItem.customFoodId,
+      },
+    };
+  } else if (input.sourceItem.foodId) {
+    itemData.food = {
+      connect: {
+        id: input.sourceItem.foodId,
+      },
+    };
+  }
+
+  return {
+    user: {
+      connect: {
+        id: input.userId,
+      },
+    },
+    telegramUserId: input.telegramUserId,
+    consumedAt: input.consumedAt ?? new Date(),
+    rawText: `relog:${input.sourceItem.matchedName}`,
+    totalCalories: input.sourceItem.calories,
+    totalProteinG: input.sourceItem.proteinG,
+    totalFatG: input.sourceItem.fatG,
+    totalCarbsG: input.sourceItem.carbsG,
+    items: {
+      create: [itemData],
+    },
+  };
 }
 
 export async function getUserDayRange(

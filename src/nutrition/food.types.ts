@@ -17,11 +17,38 @@ export type NutritionFoodRecord = {
   slug: string;
   nameRu: string;
   nameEn: string;
+  isCustom?: boolean;
   caloriesPer100g: unknown;
   proteinPer100g: unknown;
   fatPer100g: unknown;
   carbsPer100g: unknown;
   aliases: FoodAliasRecord[];
+};
+
+export type CustomFoodInputParseResult =
+  | {
+      status: "valid";
+      value: {
+        name: string;
+        caloriesPer100g: number;
+        proteinPer100g: number;
+        fatPer100g: number;
+        carbsPer100g: number;
+      };
+    }
+  | {
+      status: "invalid";
+    };
+
+export type RecentFood = {
+  id: string;
+  name: string;
+  grams: number;
+  calories: number;
+  proteinG: number;
+  fatG: number;
+  carbsG: number;
+  consumedAt: Date;
 };
 
 export type FoodMatchResult =
