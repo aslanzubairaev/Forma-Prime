@@ -12,10 +12,21 @@ import { normalizeLanguage, t, type SupportedLanguage } from "../i18n/index.js";
 import {
   createMealEntry,
   getDailyNutritionSummary,
+  getRecentFoods,
+  quickRelogMeal,
   type DailyNutritionSummary,
 } from "../meals/meals.service.js";
 import { parseFoodDraft } from "../meals/ai-food-draft.service.js";
-import type { CalculatedMeal, NutritionFoodRecord, ParsedFoodItemCandidate } from "../nutrition/food.types.js";
+import {
+  type CalculatedMeal,
+  type NutritionFoodRecord,
+  type ParsedFoodItemCandidate,
+  type RecentFood,
+} from "../nutrition/food.types.js";
+import {
+  parseCustomFoodInput,
+  upsertCustomFood,
+} from "../nutrition/custom-food.service.js";
 import { matchFoodCandidate } from "../nutrition/food-matcher.js";
 import { parseFoodLogMessage } from "../nutrition/food-parser.js";
 import { getActiveNutritionFoods } from "../nutrition/food.repository.js";
@@ -31,9 +42,13 @@ type FoodEntryPayload = {
 };
 
 const foodChoicePattern = /^food:choose:(\d+):(.+)$/;
+const foodRelogPattern = /^food:relog:(.+)$/;
 
 export function registerFoodLoggingHandlers(bot: Bot): void {
+  bot.command("customfood", handleCustomFoodCommand);
+  bot.command("recentfoods", handleRecentFoodsCommand);
   bot.callbackQuery(foodChoicePattern, handleFoodChoiceCallback);
+  bot.callbackQuery(foodRelogPattern, handleFoodRelogCallback);
   bot.on("message:text", handleFoodText);
 }
 
@@ -97,6 +112,55 @@ async function handleFoodText(ctx: Context): Promise<void> {
   await processFoodLog(ctx, user.id, BigInt(ctx.from.id), rawText, language);
 }
 
+async function handleCustomFoodCommand(ctx: Context): Promise<void> {
+  const identity = await getFoodIdentity(ctx);
+
+  if (!identity) {
+    return;
+  }
+
+  const rawInput = getCommandArgument(ctx);
+
+  if (!rawInput) {
+    await ctx.reply(t(identity.language, "customFood.help"));
+    return;
+  }
+
+  const parsed = parseCustomFoodInput(rawInput);
+
+  if (parsed.status === "invalid") {
+    await ctx.reply(t(identity.language, "customFood.invalid"));
+    await ctx.reply(t(identity.language, "customFood.help"));
+    return;
+  }
+
+  const food = await upsertCustomFood({
+    userId: identity.userId,
+    ...parsed.value,
+  });
+
+  await ctx.reply(t(identity.language, "customFood.saved", { name: food.name }));
+}
+
+async function handleRecentFoodsCommand(ctx: Context): Promise<void> {
+  const identity = await getFoodIdentity(ctx);
+
+  if (!identity) {
+    return;
+  }
+
+  const recentFoods = await getRecentFoods(identity.userId);
+
+  if (recentFoods.length === 0) {
+    await ctx.reply(t(identity.language, "recentFoods.empty"));
+    return;
+  }
+
+  await ctx.reply(formatRecentFoods(identity.language, recentFoods), {
+    reply_markup: recentFoodsKeyboard(identity.language, recentFoods),
+  });
+}
+
 async function handleFoodChoiceCallback(ctx: Context): Promise<void> {
   await ctx.answerCallbackQuery();
 
@@ -150,6 +214,47 @@ async function handleFoodChoiceCallback(ctx: Context): Promise<void> {
   );
 }
 
+async function handleFoodRelogCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+
+  if (!ctx.from) {
+    await ctx.reply(t("en", "common.missingTelegramUser"));
+    return;
+  }
+
+  const identity = await getFoodIdentity(ctx);
+  const match = ctx.callbackQuery?.data?.match(foodRelogPattern);
+  const mealEntryItemId = match?.[1];
+
+  if (!identity || !mealEntryItemId) {
+    return;
+  }
+
+  const meal = await quickRelogMeal({
+    userId: identity.userId,
+    telegramUserId: BigInt(ctx.from.id),
+    mealEntryItemId,
+  });
+
+  if (!meal) {
+    await ctx.reply(t(identity.language, "recentFoods.expired"));
+    return;
+  }
+
+  const item = meal.items[0];
+  const dailySummary = await getDailyNutritionSummary(identity.userId);
+
+  await ctx.reply(
+    [
+      t(identity.language, "recentFoods.logged", {
+        name: item?.matchedName ?? t(identity.language, "recentFoods.itemFallback"),
+      }),
+      "",
+      formatDailyTotals(identity.language, dailySummary),
+    ].join("\n"),
+  );
+}
+
 async function processFoodLog(
   ctx: Context,
   userId: string,
@@ -190,7 +295,7 @@ async function continueFoodLogWithSelection(
   payload: FoodEntryPayload,
   options: { requireFoodEntryClaim?: boolean } = {},
 ): Promise<void> {
-  const foods = await getActiveNutritionFoods();
+  const foods = await getActiveNutritionFoods(userId);
   const calculatedItems = [];
 
   for (const [index, item] of payload.parsedItems.entries()) {
@@ -269,6 +374,42 @@ function foodOptionsKeyboard(
         .text(
           getFoodDisplayName(food, language),
           `food:choose:${itemIndex}:${food.id}`,
+        )
+        .row(),
+    new InlineKeyboard(),
+  );
+}
+
+export function formatRecentFoods(
+  language: SupportedLanguage,
+  recentFoods: RecentFood[],
+): string {
+  return [
+    t(language, "recentFoods.title"),
+    ...recentFoods.map((food, index) =>
+      t(language, "recentFoods.line", {
+        index: index + 1,
+        name: food.name,
+        grams: roundForDisplay(food.grams, 0),
+        calories: Math.round(food.calories),
+      }),
+    ),
+  ].join("\n");
+}
+
+function recentFoodsKeyboard(
+  language: SupportedLanguage,
+  recentFoods: RecentFood[],
+): InlineKeyboard {
+  return recentFoods.reduce(
+    (keyboard, food) =>
+      keyboard
+        .text(
+          t(language, "recentFoods.relogButton", {
+            name: food.name,
+            grams: roundForDisplay(food.grams, 0),
+          }),
+          `food:relog:${food.id}`,
         )
         .row(),
     new InlineKeyboard(),
@@ -376,4 +517,36 @@ function readFoodEntryPayload(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function getFoodIdentity(ctx: Context): Promise<{
+  userId: string;
+  language: SupportedLanguage;
+} | null> {
+  if (!ctx.from) {
+    await ctx.reply(t("en", "common.missingTelegramUser"));
+    return null;
+  }
+
+  const user = await upsertTelegramUser(ctx.from);
+  const profile = await getProfileByUserId(user.id);
+  const language = normalizeLanguage(
+    profile?.preferredLanguage ?? user.languageCode,
+  );
+
+  return {
+    userId: user.id,
+    language,
+  };
+}
+
+function getCommandArgument(ctx: Context): string | null {
+  const match = ctx.match;
+
+  if (typeof match !== "string") {
+    return null;
+  }
+
+  const trimmedMatch = match.trim();
+  return trimmedMatch.length > 0 ? trimmedMatch : null;
 }
