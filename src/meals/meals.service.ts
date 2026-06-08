@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../db/prisma.js";
 import type { CalculatedMeal, CalculatedMealTotals } from "../nutrition/food.types.js";
+import { getUserTimeZone, getZonedDayRange } from "../time/timezone.js";
 
 export type CreateMealEntryInput = {
   userId: string;
@@ -69,8 +70,9 @@ export function buildMealEntryCreateData(
 export async function getDailyNutritionSummary(
   userId: string,
   date: Date = new Date(),
+  timeZone?: string,
 ): Promise<DailyNutritionSummary> {
-  const { start, end } = getLocalDayRange(date);
+  const { start, end } = await getUserDayRange(userId, date, timeZone);
   const [totals, target] = await Promise.all([
     prisma.mealEntry.aggregate({
       where: {
@@ -112,8 +114,12 @@ export async function getDailyNutritionSummary(
   };
 }
 
-export async function getMealsToday(userId: string, date: Date = new Date()) {
-  const { start, end } = getLocalDayRange(date);
+export async function getMealsToday(
+  userId: string,
+  date: Date = new Date(),
+  timeZone?: string,
+) {
+  const { start, end } = await getUserDayRange(userId, date, timeZone);
 
   return prisma.mealEntry.findMany({
     where: {
@@ -156,17 +162,10 @@ export function sumDailyTotals(
   );
 }
 
-export function getLocalDayRange(date: Date): { start: Date; end: Date } {
-  // SPEC-03 limitation: day boundaries use the Node.js process local timezone.
-  // Per-user timezone support is not implemented yet.
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-
-  return {
-    start,
-    end,
-  };
+export async function getUserDayRange(
+  userId: string,
+  date: Date = new Date(),
+  timeZone?: string,
+): Promise<{ start: Date; end: Date }> {
+  return getZonedDayRange(date, timeZone ?? (await getUserTimeZone(userId)));
 }

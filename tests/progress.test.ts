@@ -146,10 +146,23 @@ describe("weekly check-in logic", () => {
   });
 
   it("computes the recent seven-day range", () => {
-    const range = getRecentWeekRange(new Date("2026-06-07T12:00:00.000Z"));
+    const range = getRecentWeekRange(
+      new Date("2026-06-07T12:00:00.000Z"),
+      "Europe/Paris",
+    );
 
-    assert.equal(range.start.toISOString(), "2026-05-31T12:00:00.000Z");
-    assert.equal(range.end.toISOString(), "2026-06-07T12:00:00.000Z");
+    assert.equal(range.start.toISOString(), "2026-05-31T22:00:00.000Z");
+    assert.equal(range.end.toISOString(), "2026-06-07T22:00:00.000Z");
+  });
+
+  it("computes the weekly check-in start in the user's timezone", async () => {
+    const { getWeekStartDate } = await import("../src/progress/progress.service.js");
+    const weekStart = getWeekStartDate(
+      new Date("2026-06-07T23:30:00.000Z"),
+      "Europe/Paris",
+    );
+
+    assert.equal(weekStart.toISOString(), "2026-06-07T22:00:00.000Z");
   });
 
   it("marks no recent logging as insufficient data", () => {

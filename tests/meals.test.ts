@@ -10,6 +10,7 @@ const { formatDailyTotals } = await import("../src/bot/food-logging.js");
 const { buildMealEntryCreateData, sumDailyTotals } = await import(
   "../src/meals/meals.service.js"
 );
+const { getZonedDayRange } = await import("../src/time/timezone.js");
 
 const meal: CalculatedMeal = {
   items: [
@@ -64,6 +65,17 @@ describe("meal logging", () => {
 });
 
 describe("daily totals", () => {
+  it("computes day boundaries in the user's timezone", () => {
+    const referenceDate = new Date("2026-06-07T22:30:00.000Z");
+    const parisRange = getZonedDayRange(referenceDate, "Europe/Paris");
+    const newYorkRange = getZonedDayRange(referenceDate, "America/New_York");
+
+    assert.equal(parisRange.start.toISOString(), "2026-06-07T22:00:00.000Z");
+    assert.equal(parisRange.end.toISOString(), "2026-06-08T22:00:00.000Z");
+    assert.equal(newYorkRange.start.toISOString(), "2026-06-07T04:00:00.000Z");
+    assert.equal(newYorkRange.end.toISOString(), "2026-06-08T04:00:00.000Z");
+  });
+
   it("sums todays meals", () => {
     const totals = sumDailyTotals([
       {

@@ -1,7 +1,7 @@
 import { WorkoutSessionStatus, type Prisma } from "@prisma/client";
 
 import { prisma } from "../db/prisma.js";
-import { getLocalDayRange } from "../meals/meals.service.js";
+import { getUserDayRange } from "../meals/meals.service.js";
 import { normalizeExerciseName } from "./workout-parser.js";
 import type {
   ExerciseChoice,
@@ -189,8 +189,12 @@ export async function finishActiveWorkoutSession(userId: string) {
   });
 }
 
-export async function getWorkoutsToday(userId: string, date: Date = new Date()) {
-  const { start, end } = getLocalDayRange(date);
+export async function getWorkoutsToday(
+  userId: string,
+  date: Date = new Date(),
+  timeZone?: string,
+) {
+  const { start, end } = await getUserDayRange(userId, date, timeZone);
 
   return prisma.workoutSession.findMany({
     where: {

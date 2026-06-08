@@ -7,6 +7,11 @@ import {
 
 import { prisma } from "../db/prisma.js";
 import { t, type SupportedLanguage } from "../i18n/index.js";
+import {
+  getUserTimeZone,
+  getZonedRecentWeekRange,
+  getZonedWeekStartDate,
+} from "../time/timezone.js";
 import type {
   BodyweightRecord,
   ProgressSummary,
@@ -112,9 +117,11 @@ export async function getProgressSummary(userId: string): Promise<ProgressSummar
 export async function getWeeklySummary(
   userId: string,
   referenceDate: Date = new Date(),
+  timeZone?: string,
 ): Promise<WeeklyRecapSummary> {
+  const userTimeZone = timeZone ?? (await getUserTimeZone(userId));
   const [activityCounts, records] = await Promise.all([
-    getRecentProgressActivityCounts(userId, referenceDate),
+    getRecentProgressActivityCounts(userId, referenceDate, userTimeZone),
     prisma.bodyweightCheckin.findMany({
       where: {
         userId,
@@ -259,6 +266,7 @@ export async function completeWeeklyCheckin(input: {
   referenceDate?: Date;
 }): Promise<WeeklySummaryInput> {
   const referenceDate = input.referenceDate ?? new Date();
+  const timeZone = await getUserTimeZone(input.userId);
   const [previousBodyweight, activityCounts] = await Promise.all([
     prisma.bodyweightCheckin.findFirst({
       where: {
@@ -273,7 +281,7 @@ export async function completeWeeklyCheckin(input: {
         },
       ],
     }),
-    getRecentProgressActivityCounts(input.userId, referenceDate),
+    getRecentProgressActivityCounts(input.userId, referenceDate, timeZone),
   ]);
   const statusLabel = getWeeklyStatusLabel(activityCounts);
 
@@ -290,7 +298,7 @@ export async function completeWeeklyCheckin(input: {
     prisma.weeklyCheckin.create({
       data: buildWeeklyCheckinCreateData({
         userId: input.userId,
-        weekStartDate: getWeekStartDate(referenceDate),
+        weekStartDate: getWeekStartDate(referenceDate, timeZone),
         weightKg: input.weightKg,
         nutritionAdherence: input.nutritionAdherence,
         trainingAdherence: input.trainingAdherence,
@@ -315,8 +323,12 @@ export async function completeWeeklyCheckin(input: {
 export async function getRecentProgressActivityCounts(
   userId: string,
   referenceDate: Date = new Date(),
+  timeZone?: string,
 ): Promise<{ mealCount: number; workoutCount: number }> {
-  const { start, end } = getRecentWeekRange(referenceDate);
+  const { start, end } = getRecentWeekRange(
+    referenceDate,
+    timeZone ?? (await getUserTimeZone(userId)),
+  );
   const [mealCount, workoutCount] = await Promise.all([
     prisma.mealEntry.count({
       where: {
@@ -347,24 +359,18 @@ export async function getRecentProgressActivityCounts(
   };
 }
 
-export function getRecentWeekRange(referenceDate: Date): {
+export function getRecentWeekRange(
+  referenceDate: Date,
+  timeZone?: string,
+): {
   start: Date;
   end: Date;
 } {
-  return {
-    start: new Date(referenceDate.getTime() - weekMs),
-    end: new Date(referenceDate),
-  };
+  return getZonedRecentWeekRange(referenceDate, timeZone);
 }
 
-export function getWeekStartDate(date: Date): Date {
-  const weekStart = new Date(date);
-  weekStart.setHours(0, 0, 0, 0);
-  const day = weekStart.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  weekStart.setDate(weekStart.getDate() + mondayOffset);
-
-  return weekStart;
+export function getWeekStartDate(date: Date, timeZone?: string): Date {
+  return getZonedWeekStartDate(date, timeZone);
 }
 
 export function getWeeklyStatusLabel(input: {
