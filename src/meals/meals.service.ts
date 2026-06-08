@@ -216,6 +216,26 @@ export async function getRecentFoods(
     ],
     take: 50,
   });
+  return selectRecentFoodsFromItems(items, limit);
+}
+
+export function selectRecentFoodsFromItems(
+  items: Array<{
+    id: string;
+    foodId: string | null;
+    customFoodId: string | null;
+    matchedName: string;
+    grams: unknown;
+    calories: unknown;
+    proteinG: unknown;
+    fatG: unknown;
+    carbsG: unknown;
+    mealEntry: {
+      consumedAt: Date;
+    };
+  }>,
+  limit = 5,
+): RecentFood[] {
   const seen = new Set<string>();
   const result: RecentFood[] = [];
 
