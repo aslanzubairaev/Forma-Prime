@@ -94,6 +94,7 @@ model User {
 
   profile            Profile?
   nutritionTarget    NutritionTarget?
+  customFoods        CustomFood[]
   mealEntries        MealEntry[]
   foodEntries        FoodEntry[]
   workoutSplits      WorkoutSplit[]
@@ -164,6 +165,26 @@ model NutritionFood {
   mealItems          MealEntryItem[]
 }
 
+model CustomFood {
+  id                 String          @id @default(cuid())
+  userId             String
+  name               String
+  normalizedName     String
+  caloriesPer100g    Decimal         @db.Decimal(8, 2)
+  proteinPer100g     Decimal         @db.Decimal(8, 2)
+  fatPer100g         Decimal         @db.Decimal(8, 2)
+  carbsPer100g       Decimal         @db.Decimal(8, 2)
+  isActive           Boolean         @default(true)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mealItems          MealEntryItem[]
+
+  @@unique([userId, normalizedName])
+  @@index([userId, isActive])
+}
+
 model NutritionFoodAlias {
   id                 String        @id @default(cuid())
   foodId             String
@@ -200,7 +221,8 @@ model MealEntry {
 model MealEntryItem {
   id                 String        @id @default(cuid())
   mealEntryId        String
-  foodId             String
+  foodId             String?
+  customFoodId       String?
   matchedName        String
   quantity           Decimal       @db.Decimal(10, 2)
   unit               String
@@ -212,10 +234,12 @@ model MealEntryItem {
   createdAt          DateTime      @default(now())
 
   mealEntry          MealEntry     @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
-  food               NutritionFood @relation(fields: [foodId], references: [id], onDelete: Restrict)
+  food               NutritionFood? @relation(fields: [foodId], references: [id], onDelete: Restrict)
+  customFood         CustomFood?   @relation(fields: [customFoodId], references: [id], onDelete: Restrict)
 
   @@index([mealEntryId])
   @@index([foodId])
+  @@index([customFoodId])
 }
 
 model FoodEntry {
