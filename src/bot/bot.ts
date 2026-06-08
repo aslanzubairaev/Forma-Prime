@@ -14,6 +14,7 @@ import { registerWorkoutsCommand } from "./commands/workouts.js";
 import { registerFoodLoggingHandlers } from "./food-logging.js";
 import { registerOnboardingHandlers } from "./onboarding.js";
 import { registerProgressHandlers } from "./progress.js";
+import { registerReminderHandlers } from "./reminders.js";
 import { registerWorkoutLoggingHandlers } from "./workout-logging.js";
 
 const logger = pino({ level: env.LOG_LEVEL });
@@ -30,6 +31,7 @@ export function createBot(): Bot {
   registerFinishWorkoutCommand(bot);
   registerOnboardingHandlers(bot);
   registerProgressHandlers(bot);
+  registerReminderHandlers(bot);
   registerWorkoutLoggingHandlers(bot);
   registerFoodLoggingHandlers(bot);
 
