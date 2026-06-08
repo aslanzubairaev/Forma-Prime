@@ -14,6 +14,7 @@ import {
   getDailyNutritionSummary,
   type DailyNutritionSummary,
 } from "../meals/meals.service.js";
+import { parseFoodDraft } from "../meals/ai-food-draft.service.js";
 import type { CalculatedMeal, NutritionFoodRecord, ParsedFoodItemCandidate } from "../nutrition/food.types.js";
 import { matchFoodCandidate } from "../nutrition/food-matcher.js";
 import { parseFoodLogMessage } from "../nutrition/food-parser.js";
@@ -30,7 +31,6 @@ type FoodEntryPayload = {
 };
 
 const foodChoicePattern = /^food:choose:(\d+):(.+)$/;
-const gramsInputPattern = /\d+(?:[.,]\d+)?\s*(?:g|gr|gram|grams|г|гр|грамм|грамма|граммов)(?=\s|$)/iu;
 
 export function registerFoodLoggingHandlers(bot: Bot): void {
   bot.callbackQuery(foodChoicePattern, handleFoodChoiceCallback);
@@ -79,7 +79,7 @@ async function handleFoodText(ctx: Context): Promise<void> {
 
   const rawText = ctx.message.text.trim();
 
-  if (rawText.startsWith("/") || !gramsInputPattern.test(rawText)) {
+  if (rawText.startsWith("/")) {
     return;
   }
 
@@ -159,14 +159,25 @@ async function processFoodLog(
 ): Promise<void> {
   const parsed = parseFoodLogMessage(rawText);
 
-  if (parsed.items.length === 0 || parsed.rejectedParts.length > 0) {
+  if (parsed.items.length > 0 && parsed.rejectedParts.length === 0) {
+    await continueFoodLogWithSelection(ctx, userId, telegramUserId, language, {
+      rawText,
+      parsedItems: parsed.items,
+      selectedFoodIdsByIndex: {},
+    });
+    return;
+  }
+
+  const draft = await parseFoodDraft(rawText, language);
+
+  if (draft.status !== "ok") {
     await ctx.reply(t(language, "food.parseFailed"));
     return;
   }
 
   await continueFoodLogWithSelection(ctx, userId, telegramUserId, language, {
     rawText,
-    parsedItems: parsed.items,
+    parsedItems: draft.items,
     selectedFoodIdsByIndex: {},
   });
 }
