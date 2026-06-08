@@ -88,6 +88,7 @@ model User {
   firstName          String?
   lastName           String?
   languageCode       String?
+  timezone           String                @default("Europe/Paris")
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
 
