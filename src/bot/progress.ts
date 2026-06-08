@@ -14,8 +14,10 @@ import {
   buildWeeklyCheckinSummary,
   completeWeeklyCheckin,
   formatProgressSummary,
+  formatWeeklySummary,
   formatWeight,
   getProgressSummary,
+  getWeeklySummary,
   logBodyweight,
   parseRating,
   parseWeightKg,
@@ -38,6 +40,8 @@ const progressSteps = new Set<ConversationStep>([
 export function registerProgressHandlers(bot: Bot): void {
   bot.command("weight", handleWeightCommand);
   bot.command("progress", handleProgressCommand);
+  bot.command("summary", handleWeeklySummaryCommand);
+  bot.command("week", handleWeeklySummaryCommand);
   bot.command("checkin", startCheckinFlow);
   bot.callbackQuery(checkinRatingPattern, handleCheckinRatingCallback);
   bot.callbackQuery(checkinSkipNotesAction, handleSkipNotesCallback);
@@ -85,6 +89,21 @@ async function handleProgressCommand(ctx: Context): Promise<void> {
     formatProgressSummary(
       identity.language,
       await getProgressSummary(identity.userId),
+    ),
+  );
+}
+
+async function handleWeeklySummaryCommand(ctx: Context): Promise<void> {
+  const identity = await getProgressIdentity(ctx);
+
+  if (!identity) {
+    return;
+  }
+
+  await ctx.reply(
+    formatWeeklySummary(
+      identity.language,
+      await getWeeklySummary(identity.userId),
     ),
   );
 }

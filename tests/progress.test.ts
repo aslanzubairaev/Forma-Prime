@@ -13,8 +13,10 @@ process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgr
 const {
   buildBodyweightCheckinCreateData,
   buildProgressSummary,
+  buildWeeklySummary,
   buildWeeklyCheckinCreateData,
   buildWeeklyCheckinSummary,
+  formatWeeklySummary,
   getWeeklyStatusLabel,
   getRecentWeekRange,
   parseRating,
@@ -180,11 +182,87 @@ describe("weekly check-in logic", () => {
       statusLabel: CheckinStatusLabel.ON_TRACK,
     });
 
-    assert.match(text, /Weekly check-in completed/);
+    assert.match(text, /Check-in saved/);
     assert.match(text, /Weight: 78.4 kg/);
-    assert.match(text, /Change: -0.8 kg/);
-    assert.match(text, /Meals logged: 8/);
-    assert.match(text, /Workouts logged: 2/);
+    assert.match(text, /Weight change: -0.8 kg/);
+    assert.match(text, /Meals this week: 8/);
+    assert.match(text, /Workouts this week: 2/);
+    assert.match(text, /Status: On track/);
+  });
+});
+
+describe("weekly summary logic", () => {
+  it("marks an empty week without weight as insufficient data", () => {
+    const summary = buildWeeklySummary({
+      mealCount: 0,
+      workoutCount: 0,
+      progressSummary: buildProgressSummary([]),
+    });
+
+    assert.equal(summary.statusLabel, "insufficient_data");
+    assert.equal(summary.latestWeightKg, null);
+    assert.equal(summary.weightDeltaKg, null);
+  });
+
+  it("keeps latest weight when weight comparison is unavailable", () => {
+    const summary = buildWeeklySummary({
+      mealCount: 0,
+      workoutCount: 0,
+      progressSummary: buildProgressSummary([
+        weightRecord("latest", 78.4, "2026-06-07T08:00:00.000Z"),
+      ]),
+    });
+
+    assert.equal(summary.statusLabel, "insufficient_data");
+    assert.equal(summary.latestWeightKg, 78.4);
+    assert.equal(summary.previousWeightKg, null);
+    assert.equal(summary.weightDeltaKg, null);
+  });
+
+  it("marks partial weekly logging as needs more consistency", () => {
+    const summary = buildWeeklySummary({
+      mealCount: 4,
+      workoutCount: 0,
+      progressSummary: buildProgressSummary([]),
+    });
+
+    assert.equal(summary.statusLabel, "needs_more_consistency");
+  });
+
+  it("marks normal populated week as on track", () => {
+    const summary = buildWeeklySummary({
+      mealCount: 8,
+      workoutCount: 2,
+      progressSummary: buildProgressSummary([
+        weightRecord("previous", 79.2, "2026-06-05T08:00:00.000Z"),
+        weightRecord("latest", 78.4, "2026-06-07T08:00:00.000Z"),
+      ]),
+    });
+
+    assert.equal(summary.statusLabel, "on_track");
+    assert.equal(summary.latestWeightKg, 78.4);
+    assert.equal(summary.previousWeightKg, 79.2);
+    assert.equal(summary.weightDeltaKg, -0.8);
+  });
+
+  it("formats the weekly summary with localized facts only", () => {
+    const text = formatWeeklySummary(
+      "en",
+      buildWeeklySummary({
+        mealCount: 8,
+        workoutCount: 2,
+        progressSummary: buildProgressSummary([
+          weightRecord("previous", 79.2, "2026-06-05T08:00:00.000Z"),
+          weightRecord("latest", 78.4, "2026-06-07T08:00:00.000Z"),
+        ]),
+      }),
+    );
+
+    assert.match(text, /Weekly summary/);
+    assert.match(text, /Meals this week: 8/);
+    assert.match(text, /Workouts this week: 2/);
+    assert.match(text, /Latest weight: 78.4 kg/);
+    assert.match(text, /Weight change: -0.8 kg/);
     assert.match(text, /Status: On track/);
   });
 });
@@ -248,11 +326,11 @@ describe("progress conversation hardening", () => {
 
     assert.equal(createdCount, 1);
     assert.equal(
-      replies.filter((reply) => reply.startsWith("Weekly check-in completed")).length,
+      replies.filter((reply) => reply.startsWith("Check-in saved")).length,
       1,
     );
     assert.equal(
-      replies.filter((reply) => reply.startsWith("This check-in step expired")).length,
+      replies.filter((reply) => reply.startsWith("Check-in step expired")).length,
       1,
     );
   });

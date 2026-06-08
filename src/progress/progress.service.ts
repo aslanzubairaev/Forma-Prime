@@ -11,6 +11,8 @@ import type {
   BodyweightRecord,
   ProgressSummary,
   ProgressWeight,
+  WeeklyRecapSummary,
+  WeeklyRecapStatusLabel,
   WeightParseResult,
   WeeklySummaryInput,
 } from "./progress.types.js";
@@ -105,6 +107,63 @@ export async function getProgressSummary(userId: string): Promise<ProgressSummar
   });
 
   return buildProgressSummary(records);
+}
+
+export async function getWeeklySummary(
+  userId: string,
+  referenceDate: Date = new Date(),
+): Promise<WeeklyRecapSummary> {
+  const [activityCounts, records] = await Promise.all([
+    getRecentProgressActivityCounts(userId, referenceDate),
+    prisma.bodyweightCheckin.findMany({
+      where: {
+        userId,
+      },
+      orderBy: [
+        {
+          checkedAt: "desc",
+        },
+        {
+          createdAt: "desc",
+        },
+      ],
+    }),
+  ]);
+
+  return buildWeeklySummary({
+    mealCount: activityCounts.mealCount,
+    workoutCount: activityCounts.workoutCount,
+    progressSummary: buildProgressSummary(records),
+  });
+}
+
+export function buildWeeklySummary(input: {
+  mealCount: number;
+  workoutCount: number;
+  progressSummary: ProgressSummary;
+}): WeeklyRecapSummary {
+  const latestWeightKg =
+    input.progressSummary.status === "empty"
+      ? null
+      : input.progressSummary.latest.weightKg;
+  const previousWeightKg =
+    input.progressSummary.status === "empty" ||
+    input.progressSummary.previous === null
+      ? null
+      : input.progressSummary.previous.weightKg;
+  const weightDeltaKg =
+    input.progressSummary.status === "empty"
+      ? null
+      : input.progressSummary.previousDelta;
+
+  return {
+    mealCount: input.mealCount,
+    workoutCount: input.workoutCount,
+    latestWeightKg,
+    previousWeightKg,
+    weightDeltaKg,
+    statusLabel: getWeeklyRecapStatusLabel(input),
+  };
 }
 
 export function buildBodyweightCheckinCreateData(input: {
@@ -345,6 +404,30 @@ export function buildWeeklyCheckinSummary(
   ].join("\n");
 }
 
+export function formatWeeklySummary(
+  language: SupportedLanguage,
+  summary: WeeklyRecapSummary,
+): string {
+  return [
+    t(language, "summary.title"),
+    t(language, "summary.meals", { count: summary.mealCount }),
+    t(language, "summary.workouts", { count: summary.workoutCount }),
+    summary.latestWeightKg === null
+      ? t(language, "summary.weightUnavailable")
+      : t(language, "summary.latestWeight", {
+          weight: formatWeight(summary.latestWeightKg),
+        }),
+    summary.weightDeltaKg === null
+      ? t(language, "summary.weightChangeUnavailable")
+      : t(language, "summary.weightChange", {
+          delta: formatSignedDelta(summary.weightDeltaKg),
+        }),
+    t(language, "summary.status", {
+      status: t(language, weeklyRecapStatusLabelKey[summary.statusLabel]),
+    }),
+  ].join("\n");
+}
+
 export function formatProgressSummary(
   language: SupportedLanguage,
   summary: ProgressSummary,
@@ -395,6 +478,35 @@ const statusLabelKey: Record<CheckinStatusLabel, Parameters<typeof t>[1]> = {
   [CheckinStatusLabel.NEEDS_CONSISTENCY]: "checkin.status.needsConsistency",
   [CheckinStatusLabel.INSUFFICIENT_DATA]: "checkin.status.insufficientData",
 };
+
+const weeklyRecapStatusLabelKey: Record<
+  WeeklyRecapStatusLabel,
+  Parameters<typeof t>[1]
+> = {
+  on_track: "summary.status.onTrack",
+  good_consistency: "summary.status.goodConsistency",
+  needs_more_consistency: "summary.status.needsMoreConsistency",
+  insufficient_data: "summary.status.insufficientData",
+};
+
+function getWeeklyRecapStatusLabel(input: {
+  mealCount: number;
+  workoutCount: number;
+}): WeeklyRecapStatusLabel {
+  if (input.mealCount === 0 && input.workoutCount === 0) {
+    return "insufficient_data";
+  }
+
+  if (input.mealCount >= 7 && input.workoutCount >= 2) {
+    return "on_track";
+  }
+
+  if (input.mealCount > 0 && input.workoutCount > 0) {
+    return "good_consistency";
+  }
+
+  return "needs_more_consistency";
+}
 
 function toProgressWeight(record: BodyweightRecord): ProgressWeight {
   return {

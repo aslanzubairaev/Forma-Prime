@@ -49,3 +49,18 @@ export type WeeklySummaryInput = {
   workoutCount: number;
   statusLabel: CheckinStatusLabel;
 };
+
+export type WeeklyRecapStatusLabel =
+  | "on_track"
+  | "good_consistency"
+  | "needs_more_consistency"
+  | "insufficient_data";
+
+export type WeeklyRecapSummary = {
+  mealCount: number;
+  workoutCount: number;
+  latestWeightKg: number | null;
+  previousWeightKg: number | null;
+  weightDeltaKg: number | null;
+  statusLabel: WeeklyRecapStatusLabel;
+};
