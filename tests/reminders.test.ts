@@ -68,7 +68,7 @@ describe("reminder preference data", () => {
 
 describe("reminder due selection", () => {
   it("selects due daily reminders for the current local minute", () => {
-    const now = new Date(2026, 5, 8, 20, 15, 30);
+    const now = new Date("2026-06-08T18:15:30.000Z");
     const due = selectDueReminderPreferences(
       [
         reminderPreference({
@@ -77,6 +77,7 @@ describe("reminder due selection", () => {
           hourLocal: 20,
           minuteLocal: 15,
           daysOfWeek: allWeekdays,
+          timezone: "Europe/Paris",
         }),
         reminderPreference({
           id: "workout",
@@ -84,6 +85,7 @@ describe("reminder due selection", () => {
           hourLocal: 20,
           minuteLocal: 30,
           daysOfWeek: allWeekdays,
+          timezone: "Europe/Paris",
         }),
       ],
       now,
@@ -93,7 +95,7 @@ describe("reminder due selection", () => {
   });
 
   it("selects weekly reminders only on the configured weekday", () => {
-    const monday = new Date(2026, 5, 8, 10, 0, 0);
+    const monday = new Date("2026-06-08T08:00:00.000Z");
     const due = selectDueReminderPreferences(
       [
         reminderPreference({
@@ -102,6 +104,7 @@ describe("reminder due selection", () => {
           hourLocal: 10,
           minuteLocal: 0,
           daysOfWeek: [1],
+          timezone: "Europe/Paris",
         }),
         reminderPreference({
           id: "sunday",
@@ -109,6 +112,7 @@ describe("reminder due selection", () => {
           hourLocal: 10,
           minuteLocal: 0,
           daysOfWeek: [0],
+          timezone: "Europe/Paris",
         }),
       ],
       monday,
@@ -117,8 +121,39 @@ describe("reminder due selection", () => {
     assert.deepEqual(due.map((preference) => preference.id), ["weekly"]);
   });
 
+  it("uses the nested user's timezone when selecting due reminders", () => {
+    const now = new Date("2026-06-09T00:15:00.000Z");
+    const due = selectDueReminderPreferences(
+      [
+        reminderPreference({
+          id: "new-york",
+          type: ReminderType.FOOD_LOG,
+          hourLocal: 20,
+          minuteLocal: 15,
+          daysOfWeek: allWeekdays,
+          user: {
+            timezone: "America/New_York",
+          },
+        }),
+        reminderPreference({
+          id: "paris",
+          type: ReminderType.FOOD_LOG,
+          hourLocal: 20,
+          minuteLocal: 15,
+          daysOfWeek: allWeekdays,
+          user: {
+            timezone: "Europe/Paris",
+          },
+        }),
+      ],
+      now,
+    );
+
+    assert.deepEqual(due.map((preference) => preference.id), ["new-york"]);
+  });
+
   it("does not select a reminder twice in the same scheduled window", () => {
-    const now = new Date(2026, 5, 8, 20, 15, 30);
+    const now = new Date("2026-06-08T18:15:30.000Z");
     const due = selectDueReminderPreferences(
       [
         reminderPreference({
@@ -127,7 +162,8 @@ describe("reminder due selection", () => {
           hourLocal: 20,
           minuteLocal: 15,
           daysOfWeek: allWeekdays,
-          lastSentAt: new Date(2026, 5, 8, 20, 15, 5),
+          lastSentAt: new Date("2026-06-08T18:15:05.000Z"),
+          timezone: "Europe/Paris",
         }),
       ],
       now,
@@ -276,6 +312,10 @@ function reminderPreference(overrides: {
   minuteLocal: number;
   daysOfWeek: number[];
   lastSentAt?: Date | null;
+  timezone?: string | null;
+  user?: {
+    timezone?: string | null;
+  };
 }) {
   return {
     userId: "user_1",

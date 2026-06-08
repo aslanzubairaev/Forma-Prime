@@ -1,6 +1,11 @@
 import { ReminderType, type Prisma } from "@prisma/client";
 
 import { prisma } from "../db/prisma.js";
+import {
+  getZonedClock,
+  getZonedScheduledMinuteWindow,
+  resolveTimeZone,
+} from "../time/timezone.js";
 import type {
   ReminderPreferenceData,
   ReminderPreferenceDueInput,
@@ -8,8 +13,6 @@ import type {
 } from "./reminder.types.js";
 
 export const allWeekdays = [0, 1, 2, 3, 4, 5, 6];
-
-const minuteMs = 60 * 1000;
 
 const defaultReminderConfig: Record<
   ReminderType,
@@ -163,7 +166,11 @@ export type DueReminderPreference = Prisma.ReminderPreferenceGetPayload<{
       };
     };
   };
-}>;
+}> & {
+  user: {
+    timezone?: string | null;
+  };
+};
 
 export async function getDueReminderPreferences(
   referenceDate: Date = new Date(),
@@ -171,8 +178,6 @@ export async function getDueReminderPreferences(
   const candidates = await prisma.reminderPreference.findMany({
     where: {
       isEnabled: true,
-      hourLocal: referenceDate.getHours(),
-      minuteLocal: referenceDate.getMinutes(),
     },
     include: {
       user: {
@@ -229,49 +234,60 @@ function isReminderDue(
   preference: ReminderPreferenceDueInput,
   referenceDate: Date,
 ): boolean {
+  const timeZone = getPreferenceTimeZone(preference);
+  const localClock = getZonedClock(referenceDate, timeZone);
+
   if (!preference.isEnabled) {
     return false;
   }
 
   if (
-    preference.hourLocal !== referenceDate.getHours() ||
-    preference.minuteLocal !== referenceDate.getMinutes()
+    preference.hourLocal !== localClock.hour ||
+    preference.minuteLocal !== localClock.minute
   ) {
     return false;
   }
 
-  if (!isReminderDayAllowed(preference, referenceDate)) {
+  if (!isReminderDayAllowed(preference, localClock.weekday)) {
     return false;
   }
 
-  return !wasReminderSentInCurrentWindow(preference, referenceDate);
+  return !wasReminderSentInCurrentWindow(preference, referenceDate, timeZone);
 }
 
 function isReminderDayAllowed(
   preference: ReminderPreferenceDueInput,
-  referenceDate: Date,
+  weekday: number,
 ): boolean {
   if (preference.daysOfWeek.length === 0) {
     return preference.type !== ReminderType.WEEKLY_CHECKIN;
   }
 
-  return preference.daysOfWeek.includes(referenceDate.getDay());
+  return preference.daysOfWeek.includes(weekday);
 }
 
 function wasReminderSentInCurrentWindow(
   preference: ReminderPreferenceDueInput,
   referenceDate: Date,
+  timeZone: string,
 ): boolean {
   if (!preference.lastSentAt) {
     return false;
   }
 
-  const windowStart = new Date(referenceDate);
-  windowStart.setHours(preference.hourLocal, preference.minuteLocal, 0, 0);
-  const windowEnd = new Date(windowStart.getTime() + minuteMs);
+  const { start: windowStart, end: windowEnd } = getZonedScheduledMinuteWindow({
+    referenceDate,
+    timeZone,
+    hour: preference.hourLocal,
+    minute: preference.minuteLocal,
+  });
   const lastSentAt = preference.lastSentAt.getTime();
 
   return (
     lastSentAt >= windowStart.getTime() && lastSentAt < windowEnd.getTime()
   );
+}
+
+function getPreferenceTimeZone(preference: ReminderPreferenceDueInput): string {
+  return resolveTimeZone(preference.timezone ?? preference.user?.timezone);
 }

@@ -22,6 +22,10 @@ export type ReminderPreferenceDueInput = ReminderPreferenceData & {
   id: string;
   userId: string;
   lastSentAt: Date | null;
+  timezone?: string | null;
+  user?: {
+    timezone?: string | null;
+  };
 };
 
 export type ReminderSetupPayload = {
