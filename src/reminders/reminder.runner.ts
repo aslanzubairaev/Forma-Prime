@@ -2,6 +2,7 @@ import type { Bot } from "grammy";
 
 import { normalizeLanguage, t } from "../i18n/index.js";
 import {
+  type DueReminderPreference,
   getDueReminderPreferences,
   getReminderDeliveryTextKey,
   markReminderSent,
@@ -10,9 +11,14 @@ import {
 export async function runReminderDelivery(input: {
   bot: Bot;
   referenceDate?: Date;
+  getDuePreferences?: typeof getDueReminderPreferences;
+  markSent?: typeof markReminderSent;
 }): Promise<{ sentCount: number }> {
   const referenceDate = input.referenceDate ?? new Date();
-  const duePreferences = await getDueReminderPreferences(referenceDate);
+  const getDuePreferences = input.getDuePreferences ?? getDueReminderPreferences;
+  const markSent = input.markSent ?? markReminderSent;
+  const duePreferences: DueReminderPreference[] =
+    await getDuePreferences(referenceDate);
   let sentCount = 0;
 
   for (const preference of duePreferences) {
@@ -24,7 +30,7 @@ export async function runReminderDelivery(input: {
       preference.user.telegramId.toString(),
       t(language, getReminderDeliveryTextKey(preference.type)),
     );
-    await markReminderSent(preference.id, referenceDate);
+    await markSent(preference.id, referenceDate);
     sentCount += 1;
   }
 
