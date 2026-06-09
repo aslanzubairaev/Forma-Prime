@@ -15,6 +15,16 @@ const activeWorkoutStatuses: WorkoutSessionStatus[] = [
   WorkoutSessionStatus.IN_PROGRESS,
 ];
 
+export type LatestWorkoutLog = Prisma.ExerciseLogGetPayload<{
+  include: {
+    workoutSession: {
+      include: {
+        workoutDay: true;
+      };
+    };
+  };
+}>;
+
 export function isActiveWorkoutStatus(status: WorkoutSessionStatus): boolean {
   return activeWorkoutStatuses.includes(status);
 }
@@ -160,6 +170,123 @@ export async function logWorkoutSet(
       weightKg: parsedSet.weightKg,
       reps: parsedSet.reps,
     }),
+  });
+}
+
+export async function getLatestWorkoutLog(
+  userId: string,
+): Promise<LatestWorkoutLog | null> {
+  return prisma.exerciseLog.findFirst({
+    where: {
+      workoutSession: {
+        userId,
+      },
+    },
+    include: {
+      workoutSession: {
+        include: {
+          workoutDay: true,
+        },
+      },
+    },
+    orderBy: [
+      {
+        createdAt: "desc",
+      },
+      {
+        id: "desc",
+      },
+    ],
+  });
+}
+
+export function buildExerciseLogUpdateData(input: {
+  exerciseId?: string | null;
+  exerciseName: string;
+  weightKg: number | null;
+  reps: number;
+}): Prisma.ExerciseLogUncheckedUpdateInput {
+  return {
+    exerciseId: input.exerciseId ?? null,
+    exerciseName: input.exerciseName,
+    weightKg: input.weightKg,
+    reps: input.reps,
+  };
+}
+
+export async function updateLatestWorkoutLog(input: {
+  userId: string;
+  exerciseLogId: string;
+  exerciseId?: string | null;
+  exerciseName: string;
+  weightKg: number | null;
+  reps: number;
+}): Promise<LatestWorkoutLog | null> {
+  const latest = await getLatestWorkoutLog(input.userId);
+
+  if (latest?.id !== input.exerciseLogId) {
+    return null;
+  }
+
+  return prisma.exerciseLog.update({
+    where: {
+      id: input.exerciseLogId,
+    },
+    data: buildExerciseLogUpdateData(input),
+    include: {
+      workoutSession: {
+        include: {
+          workoutDay: true,
+        },
+      },
+    },
+  });
+}
+
+export async function deleteLatestWorkoutLog(input: {
+  userId: string;
+  exerciseLogId: string;
+}): Promise<boolean> {
+  const latest = await getLatestWorkoutLog(input.userId);
+
+  if (latest?.id !== input.exerciseLogId) {
+    return false;
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const deleteResult = await tx.exerciseLog.deleteMany({
+      where: {
+        id: input.exerciseLogId,
+        workoutSession: {
+          userId: input.userId,
+        },
+      },
+    });
+
+    if (deleteResult.count !== 1) {
+      return false;
+    }
+
+    const remainingLogCount = await tx.exerciseLog.count({
+      where: {
+        workoutSessionId: latest.workoutSessionId,
+      },
+    });
+
+    if (
+      remainingLogCount === 0 &&
+      latest.workoutSession.status === WorkoutSessionStatus.COMPLETED
+    ) {
+      await tx.workoutSession.deleteMany({
+        where: {
+          id: latest.workoutSessionId,
+          userId: input.userId,
+          status: WorkoutSessionStatus.COMPLETED,
+        },
+      });
+    }
+
+    return true;
   });
 }
 

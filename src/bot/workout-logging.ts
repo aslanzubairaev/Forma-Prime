@@ -1,7 +1,8 @@
 import { ConversationStep } from "@prisma/client";
-import { InlineKeyboard, type Bot, type Context } from "grammy";
+import { InlineKeyboard, type Bot, type Context, type NextFunction } from "grammy";
 
 import {
+  claimConversationStep,
   getConversationState,
   resetConversationState,
   setConversationState,
@@ -13,26 +14,41 @@ import { upsertTelegramUser } from "../users/user.service.js";
 import { parseWorkoutSet } from "../workouts/workout-parser.js";
 import {
   buildWorkoutSessionSummary,
+  deleteLatestWorkoutLog,
   finishActiveWorkoutSession,
   getActiveWorkoutSession,
   getActiveWorkoutSplit,
+  getLatestWorkoutLog,
   getWorkoutsToday,
   getWorkoutDayExercises,
   logWorkoutSet,
   matchExerciseChoice,
   startManualWorkoutSession,
   startWorkoutSessionForDay,
+  updateLatestWorkoutLog,
+  type LatestWorkoutLog,
 } from "../workouts/workout.service.js";
 import type { ExerciseChoice, ParsedWorkoutSet, WorkoutSessionWithLogs } from "../workouts/workout.types.js";
 
 const workoutDayPattern = /^workout:day:(.+)$/;
 const workoutExercisePattern = /^workout:exercise:(.+)$/;
+const workoutEditExercisePattern = /^workoutedit:exercise:(.+)$/;
+const lastWorkoutEditPattern = /^lastworkout:edit:(.+)$/;
+const lastWorkoutDeletePattern = /^lastworkout:delete:(.+)$/;
+const lastWorkoutConfirmDeletePattern = /^lastworkout:confirm_delete:(.+)$/;
+const lastWorkoutCancelAction = "lastworkout:cancel";
 const manualWorkoutAction = "workout:manual";
 
 export function registerWorkoutLoggingHandlers(bot: Bot): void {
+  bot.command("lastworkout", handleLastWorkoutCommand);
   bot.callbackQuery(workoutDayPattern, handleWorkoutDayChoice);
   bot.callbackQuery(manualWorkoutAction, handleManualWorkoutChoice);
   bot.callbackQuery(workoutExercisePattern, handleWorkoutExerciseChoice);
+  bot.callbackQuery(workoutEditExercisePattern, handleWorkoutEditExerciseChoice);
+  bot.callbackQuery(lastWorkoutEditPattern, handleLastWorkoutEditCallback);
+  bot.callbackQuery(lastWorkoutDeletePattern, handleLastWorkoutDeleteCallback);
+  bot.callbackQuery(lastWorkoutConfirmDeletePattern, handleLastWorkoutConfirmDeleteCallback);
+  bot.callbackQuery(lastWorkoutCancelAction, handleLastWorkoutCancelCallback);
   bot.on("message:text", handleWorkoutText);
 }
 
@@ -118,6 +134,25 @@ export async function showWorkoutsFlow(ctx: Context): Promise<void> {
   );
 }
 
+async function handleLastWorkoutCommand(ctx: Context): Promise<void> {
+  const identity = await getWorkoutIdentity(ctx);
+
+  if (!identity) {
+    return;
+  }
+
+  const log = await getLatestWorkoutLog(identity.userId);
+
+  if (!log) {
+    await ctx.reply(t(identity.language, "lastWorkout.empty"));
+    return;
+  }
+
+  await ctx.reply(formatLatestWorkout(identity.language, log), {
+    reply_markup: lastWorkoutKeyboard(identity.language, log.id),
+  });
+}
+
 async function handleWorkoutDayChoice(ctx: Context): Promise<void> {
   await ctx.answerCallbackQuery();
 
@@ -173,8 +208,141 @@ async function handleWorkoutExerciseChoice(ctx: Context): Promise<void> {
   );
 }
 
-async function handleWorkoutText(ctx: Context): Promise<void> {
+async function handleWorkoutEditExerciseChoice(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+
+  const identity = await getWorkoutIdentity(ctx);
+  const state = identity ? await getConversationState(identity.userId) : null;
+  const payload = state ? readWorkoutEditExercisePayload(state.payload) : null;
+  const match = ctx.callbackQuery?.data?.match(workoutEditExercisePattern);
+
+  if (!identity || state?.step !== ConversationStep.WORKOUT_EDIT_EXERCISE || !payload || !match?.[1]) {
+    if (identity) {
+      await ctx.reply(t(identity.language, "lastWorkout.expired"));
+    }
+    return;
+  }
+
+  const exercises = await getWorkoutDayExercises(payload.workoutDayId);
+  const exercise = exercises.find((candidate) => candidate.id === match[1]);
+
+  if (!exercise) {
+    await ctx.reply(t(identity.language, "lastWorkout.expired"));
+    return;
+  }
+
+  const claimed = await claimConversationStep(
+    identity.userId,
+    ConversationStep.WORKOUT_EDIT_EXERCISE,
+  );
+
+  if (!claimed) {
+    await ctx.reply(t(identity.language, "lastWorkout.expired"));
+    return;
+  }
+
+  const updated = await updateLatestWorkoutLog({
+    userId: identity.userId,
+    exerciseLogId: payload.exerciseLogId,
+    exerciseId: exercise.id,
+    exerciseName: exercise.name,
+    weightKg: payload.parsedSet.weightKg,
+    reps: payload.parsedSet.reps,
+  });
+
+  await ctx.reply(
+    updated
+      ? t(identity.language, "lastWorkout.updated")
+      : t(identity.language, "lastWorkout.expired"),
+  );
+}
+
+async function handleLastWorkoutEditCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const identity = await getWorkoutIdentity(ctx);
+  const exerciseLogId = ctx.callbackQuery?.data?.match(lastWorkoutEditPattern)?.[1];
+
+  if (!identity || !exerciseLogId) {
+    return;
+  }
+
+  await setConversationState(identity.userId, ConversationStep.WORKOUT_EDIT, {
+    exerciseLogId,
+  });
+  await ctx.reply(t(identity.language, "lastWorkout.editPrompt"));
+}
+
+async function handleLastWorkoutDeleteCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const identity = await getWorkoutIdentity(ctx);
+  const exerciseLogId = ctx.callbackQuery?.data?.match(lastWorkoutDeletePattern)?.[1];
+
+  if (!identity || !exerciseLogId) {
+    return;
+  }
+
+  await setConversationState(identity.userId, ConversationStep.WORKOUT_DELETE, {
+    exerciseLogId,
+  });
+  await ctx.reply(t(identity.language, "lastWorkout.deleteConfirm"), {
+    reply_markup: lastWorkoutDeleteConfirmKeyboard(identity.language, exerciseLogId),
+  });
+}
+
+async function handleLastWorkoutConfirmDeleteCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const identity = await getWorkoutIdentity(ctx);
+  const exerciseLogId = ctx.callbackQuery?.data?.match(lastWorkoutConfirmDeletePattern)?.[1];
+
+  if (!identity || !exerciseLogId) {
+    return;
+  }
+
+  const state = await getConversationState(identity.userId);
+  const payload = readLatestWorkoutPayload(state.payload);
+
+  if (state.step !== ConversationStep.WORKOUT_DELETE || payload?.exerciseLogId !== exerciseLogId) {
+    await ctx.reply(t(identity.language, "lastWorkout.expired"));
+    return;
+  }
+
+  const claimed = await claimConversationStep(identity.userId, ConversationStep.WORKOUT_DELETE);
+
+  if (!claimed) {
+    await ctx.reply(t(identity.language, "lastWorkout.expired"));
+    return;
+  }
+
+  const deleted = await deleteLatestWorkoutLog({
+    userId: identity.userId,
+    exerciseLogId,
+  });
+
+  await ctx.reply(
+    deleted
+      ? t(identity.language, "lastWorkout.deleted")
+      : t(identity.language, "lastWorkout.expired"),
+  );
+}
+
+async function handleLastWorkoutCancelCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const identity = await getWorkoutIdentity(ctx);
+
+  if (!identity) {
+    return;
+  }
+
+  await resetConversationState(identity.userId);
+  await ctx.reply(t(identity.language, "lastWorkout.cancelled"));
+}
+
+async function handleWorkoutText(
+  ctx: Context,
+  next: NextFunction,
+): Promise<void> {
   if (!ctx.from || !ctx.message?.text) {
+    await next();
     return;
   }
 
@@ -190,11 +358,29 @@ async function handleWorkoutText(ctx: Context): Promise<void> {
     return;
   }
 
+  const state = await getConversationState(identity.userId);
+
+  if (state.step === ConversationStep.WORKOUT_EDIT) {
+    await handleWorkoutEditText(ctx, identity.userId, identity.language, rawText, state.payload);
+    return;
+  }
+
+  if (state.step === ConversationStep.WORKOUT_EDIT_EXERCISE) {
+    await ctx.reply(t(identity.language, "common.useCurrentQuestion"));
+    return;
+  }
+
+  if (state.step !== ConversationStep.IDLE && state.step !== ConversationStep.WORKOUT_ENTRY) {
+    await next();
+    return;
+  }
+
   const activeSession = await getActiveWorkoutSession(identity.userId);
   const parsedSet = parseWorkoutSet(rawText);
 
   if (!activeSession) {
     if (!parsedSet) {
+      await next();
       return;
     }
 
@@ -208,6 +394,111 @@ async function handleWorkoutText(ctx: Context): Promise<void> {
   }
 
   await logParsedWorkoutSet(ctx, identity.userId, identity.language, activeSession, parsedSet);
+}
+
+async function handleWorkoutEditText(
+  ctx: Context,
+  userId: string,
+  language: SupportedLanguage,
+  rawText: string,
+  payload: ConversationPayload | null,
+): Promise<void> {
+  const editPayload = readLatestWorkoutPayload(payload);
+
+  if (!editPayload) {
+    await resetConversationState(userId);
+    await ctx.reply(t(language, "lastWorkout.expired"));
+    return;
+  }
+
+  const parsedSet = parseWorkoutSet(rawText);
+
+  if (!parsedSet) {
+    await ctx.reply(t(language, "lastWorkout.editInvalid"));
+    return;
+  }
+
+  const latestLog = await getLatestWorkoutLog(userId);
+
+  if (!latestLog || latestLog.id !== editPayload.exerciseLogId) {
+    await resetConversationState(userId);
+    await ctx.reply(t(language, "lastWorkout.expired"));
+    return;
+  }
+
+  if (!latestLog.workoutSession.workoutDayId) {
+    await updateWorkoutEditAfterClaim(ctx, userId, language, {
+      exerciseLogId: editPayload.exerciseLogId,
+      exerciseId: null,
+      exerciseName: parsedSet.exerciseName,
+      weightKg: parsedSet.weightKg,
+      reps: parsedSet.reps,
+    });
+    return;
+  }
+
+  const exercises = await getWorkoutDayExercises(latestLog.workoutSession.workoutDayId);
+  const match = matchExerciseChoice(parsedSet, exercises);
+
+  if (match.status === "matched") {
+    await updateWorkoutEditAfterClaim(ctx, userId, language, {
+      exerciseLogId: editPayload.exerciseLogId,
+      exerciseId: match.exercise.id,
+      exerciseName: match.exercise.name,
+      weightKg: parsedSet.weightKg,
+      reps: parsedSet.reps,
+    });
+    return;
+  }
+
+  if (match.status === "ambiguous") {
+    await setConversationState(userId, ConversationStep.WORKOUT_EDIT_EXERCISE, {
+      exerciseLogId: editPayload.exerciseLogId,
+      workoutDayId: latestLog.workoutSession.workoutDayId,
+      parsedSet,
+    } as unknown as ConversationPayload);
+    await ctx.reply(t(language, "lastWorkout.exerciseAmbiguous", {
+      exercise: parsedSet.exerciseName,
+    }), {
+      reply_markup: workoutEditExerciseKeyboard(match.options),
+    });
+    return;
+  }
+
+  await ctx.reply(t(language, "lastWorkout.exerciseNotFound", {
+    exercise: parsedSet.exerciseName,
+  }));
+}
+
+async function updateWorkoutEditAfterClaim(
+  ctx: Context,
+  userId: string,
+  language: SupportedLanguage,
+  input: {
+    exerciseLogId: string;
+    exerciseId: string | null;
+    exerciseName: string;
+    weightKg: number | null;
+    reps: number;
+  },
+): Promise<void> {
+  const claimed = await claimConversationStep(userId, ConversationStep.WORKOUT_EDIT);
+
+  if (!claimed) {
+    await ctx.reply(t(language, "lastWorkout.expired"));
+    return;
+  }
+
+  const updated = await updateLatestWorkoutLog({
+    userId,
+    ...input,
+  });
+
+  await ctx.reply(
+    updated
+      ? t(language, "lastWorkout.updated")
+      : t(language, "lastWorkout.expired"),
+  );
 }
 
 async function logParsedWorkoutSet(
@@ -265,6 +556,14 @@ function exerciseOptionsKeyboard(options: ExerciseChoice[]): InlineKeyboard {
   return options.slice(0, 5).reduce(
     (keyboard, exercise) =>
       keyboard.text(exercise.name, `workout:exercise:${exercise.id}`).row(),
+    new InlineKeyboard(),
+  );
+}
+
+function workoutEditExerciseKeyboard(options: ExerciseChoice[]): InlineKeyboard {
+  return options.slice(0, 5).reduce(
+    (keyboard, exercise) =>
+      keyboard.text(exercise.name, `workoutedit:exercise:${exercise.id}`).row(),
     new InlineKeyboard(),
   );
 }
@@ -336,6 +635,45 @@ function formatCompactWorkoutSummary(
     exercises: summary.exerciseCount,
     sets: summary.totalSets,
   });
+}
+
+export function formatLatestWorkout(
+  language: SupportedLanguage,
+  log: LatestWorkoutLog,
+): string {
+  return [
+    t(language, "lastWorkout.title"),
+    t(language, "lastWorkout.summary", {
+      exercise: log.exerciseName,
+      weight: log.weightKg === null ? "-" : Number(log.weightKg),
+      reps: log.reps ?? "-",
+      timestamp: log.createdAt.toISOString(),
+    }),
+  ].join("\n");
+}
+
+function lastWorkoutKeyboard(
+  language: SupportedLanguage,
+  exerciseLogId: string,
+): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(t(language, "lastLog.button.edit"), `lastworkout:edit:${exerciseLogId}`)
+    .text(t(language, "lastLog.button.delete"), `lastworkout:delete:${exerciseLogId}`)
+    .row()
+    .text(t(language, "lastLog.button.cancel"), lastWorkoutCancelAction);
+}
+
+function lastWorkoutDeleteConfirmKeyboard(
+  language: SupportedLanguage,
+  exerciseLogId: string,
+): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(
+      t(language, "lastLog.button.confirmDelete"),
+      `lastworkout:confirm_delete:${exerciseLogId}`,
+    )
+    .row()
+    .text(t(language, "lastLog.button.cancel"), lastWorkoutCancelAction);
 }
 
 function formatSetLogged(
@@ -443,6 +781,46 @@ function readWorkoutEntryPayload(
 
   return {
     parsedSet: parsedSet as ParsedWorkoutSet,
+  };
+}
+
+function readLatestWorkoutPayload(
+  payload: ConversationPayload | null,
+): { exerciseLogId: string } | null {
+  if (!payload || typeof payload.exerciseLogId !== "string") {
+    return null;
+  }
+
+  return {
+    exerciseLogId: payload.exerciseLogId,
+  };
+}
+
+function readWorkoutEditExercisePayload(
+  payload: ConversationPayload | null,
+): {
+  exerciseLogId: string;
+  workoutDayId: string;
+  parsedSet: ParsedWorkoutSet;
+} | null {
+  if (
+    !payload ||
+    typeof payload.exerciseLogId !== "string" ||
+    typeof payload.workoutDayId !== "string"
+  ) {
+    return null;
+  }
+
+  const parsedPayload = readWorkoutEntryPayload(payload);
+
+  if (!parsedPayload) {
+    return null;
+  }
+
+  return {
+    exerciseLogId: payload.exerciseLogId,
+    workoutDayId: payload.workoutDayId,
+    parsedSet: parsedPayload.parsedSet,
   };
 }
 
