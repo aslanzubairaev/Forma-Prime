@@ -683,6 +683,10 @@ export function getWeeklyCoachingHint(input: {
     return "use_recent_foods";
   }
 
+  if (input.mealCount >= 2 && input.workoutCount >= 1) {
+    return "balanced_week";
+  }
+
   if (input.progressSummary.status !== "empty") {
     return "use_latest_logs";
   }

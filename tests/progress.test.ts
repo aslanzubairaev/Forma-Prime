@@ -340,6 +340,23 @@ describe("weekly summary logic", () => {
       workoutCount: 1,
     }), "mixed_activity");
     assert.equal(getWeeklyCoachingHint({
+      mealCount: 2,
+      workoutCount: 1,
+      progressSummary: buildProgressSummary([]),
+    }), "balanced_week");
+    assert.equal(getWeeklyCoachingHint({
+      mealCount: 1,
+      workoutCount: 1,
+      progressSummary: buildProgressSummary([
+        weightRecord("latest", 78.4, "2026-06-07T08:00:00.000Z"),
+      ]),
+    }), "use_latest_logs");
+    assert.equal(getWeeklyCoachingHint({
+      mealCount: 1,
+      workoutCount: 1,
+      progressSummary: buildProgressSummary([]),
+    }), "use_reminders");
+    assert.equal(getWeeklyCoachingHint({
       mealCount: 0,
       workoutCount: 1,
       progressSummary: buildProgressSummary([]),
