@@ -16,13 +16,19 @@ const {
   buildWeeklySummary,
   buildWeeklyCheckinCreateData,
   buildWeeklyCheckinSummary,
+  formatProgressSummary,
   formatWeeklySummary,
+  getProgressCoachingHint,
+  getProgressInsightLabel,
+  getWeeklyCoachingHint,
+  getWeeklyInsightLabel,
   getWeeklyStatusLabel,
   getRecentWeekRange,
   parseRating,
   parseWeightKg,
 } = await import("../src/progress/progress.service.js");
 const { finishCheckin, saveManualWeight } = await import("../src/bot/progress.js");
+const { t } = await import("../src/i18n/index.js");
 
 describe("weight parsing", () => {
   it("accepts integer weight", () => {
@@ -51,6 +57,8 @@ describe("progress summary logic", () => {
     const summary = buildProgressSummary([]);
 
     assert.equal(summary.status, "empty");
+    assert.equal(summary.insightLabel, "no_data");
+    assert.equal(summary.coachingHint, "start_with_weight");
   });
 
   it("returns latest only for one record", () => {
@@ -62,6 +70,8 @@ describe("progress summary logic", () => {
     assert.equal(summary.latest.weightKg, 78.4);
     assert.equal(summary.previous, null);
     assert.equal(summary.weekDelta, null);
+    assert.equal(summary.insightLabel, "first_entry");
+    assert.equal(summary.coachingHint, "log_second_weight");
   });
 
   it("returns delta against previous record", () => {
@@ -74,6 +84,8 @@ describe("progress summary logic", () => {
     assert.equal(summary.previous?.weightKg, 79.2);
     assert.equal(summary.previousDelta, -0.8);
     assert.equal(summary.weekDelta, null);
+    assert.equal(summary.insightLabel, "weight_trending_down");
+    assert.equal(summary.coachingHint, "steady_progress");
   });
 
   it("returns week delta when baseline is available", () => {
@@ -85,6 +97,8 @@ describe("progress summary logic", () => {
 
     assert.equal(summary.weekBaseline?.id, "week");
     assert.equal(summary.weekDelta, -1.7);
+    assert.equal(summary.insightLabel, "weight_change_attention");
+    assert.equal(summary.coachingHint, "review_fast_change");
   });
 
   it("uses closest earlier record at least seven days before latest", () => {
@@ -97,6 +111,29 @@ describe("progress summary logic", () => {
 
     assert.equal(summary.weekBaseline?.id, "closest");
     assert.equal(summary.weekDelta, -1.7);
+  });
+
+  it("formats richer progress insights and hints", () => {
+    const text = formatProgressSummary(
+      "en",
+      buildProgressSummary([
+        weightRecord("older", 79.2, "2026-06-05T08:00:00.000Z"),
+        weightRecord("latest", 78.4, "2026-06-07T08:00:00.000Z"),
+      ]),
+    );
+
+    assert.match(text, /Insight: Weight is trending down/);
+    assert.match(text, /Hint: Keep entries consistent before changing the plan\./);
+  });
+
+  it("keeps progress insight and coaching selectors deterministic", () => {
+    const summary = buildProgressSummary([
+      weightRecord("older", 78.2, "2026-06-05T08:00:00.000Z"),
+      weightRecord("latest", 78.4, "2026-06-07T08:00:00.000Z"),
+    ]);
+
+    assert.equal(getProgressInsightLabel(summary), "weight_stable");
+    assert.equal(getProgressCoachingHint(summary), "steady_progress");
   });
 });
 
@@ -215,6 +252,8 @@ describe("weekly summary logic", () => {
     assert.equal(summary.statusLabel, "insufficient_data");
     assert.equal(summary.latestWeightKg, null);
     assert.equal(summary.weightDeltaKg, null);
+    assert.equal(summary.insightLabel, "no_activity");
+    assert.equal(summary.coachingHint, "start_with_weight");
   });
 
   it("keeps latest weight when weight comparison is unavailable", () => {
@@ -230,6 +269,8 @@ describe("weekly summary logic", () => {
     assert.equal(summary.latestWeightKg, 78.4);
     assert.equal(summary.previousWeightKg, null);
     assert.equal(summary.weightDeltaKg, null);
+    assert.equal(summary.insightLabel, "no_activity");
+    assert.equal(summary.coachingHint, "log_first_meal");
   });
 
   it("marks partial weekly logging as needs more consistency", () => {
@@ -240,6 +281,8 @@ describe("weekly summary logic", () => {
     });
 
     assert.equal(summary.statusLabel, "needs_more_consistency");
+    assert.equal(summary.insightLabel, "nutrition_only");
+    assert.equal(summary.coachingHint, "add_workout");
   });
 
   it("marks normal populated week as on track", () => {
@@ -256,6 +299,8 @@ describe("weekly summary logic", () => {
     assert.equal(summary.latestWeightKg, 78.4);
     assert.equal(summary.previousWeightKg, 79.2);
     assert.equal(summary.weightDeltaKg, -0.8);
+    assert.equal(summary.insightLabel, "consistent_week");
+    assert.equal(summary.coachingHint, "strong_consistency");
   });
 
   it("formats the weekly summary with localized facts only", () => {
@@ -277,6 +322,55 @@ describe("weekly summary logic", () => {
     assert.match(text, /Latest weight: 78.4 kg/);
     assert.match(text, /Weight change: -0.8 kg/);
     assert.match(text, /Status: On track/);
+    assert.match(text, /Insight: Consistent week/);
+    assert.match(text, /Hint: Keep the same simple logging rhythm next week\./);
+  });
+
+  it("keeps weekly insight and coaching selectors deterministic", () => {
+    assert.equal(getWeeklyInsightLabel({
+      mealCount: 3,
+      workoutCount: 0,
+    }), "nutrition_only");
+    assert.equal(getWeeklyInsightLabel({
+      mealCount: 0,
+      workoutCount: 1,
+    }), "training_only");
+    assert.equal(getWeeklyInsightLabel({
+      mealCount: 3,
+      workoutCount: 1,
+    }), "mixed_activity");
+    assert.equal(getWeeklyCoachingHint({
+      mealCount: 0,
+      workoutCount: 1,
+      progressSummary: buildProgressSummary([]),
+    }), "add_meal_logging");
+  });
+});
+
+describe("coaching hint catalog", () => {
+  it("localizes the 13 short safe coaching hints", () => {
+    const hintKeys = [
+      "coach.hint.startWithWeight",
+      "coach.hint.logSecondWeight",
+      "coach.hint.steadyProgress",
+      "coach.hint.reviewFastChange",
+      "coach.hint.keepWeeklyCheckin",
+      "coach.hint.logFirstMeal",
+      "coach.hint.addWorkout",
+      "coach.hint.addMealLogging",
+      "coach.hint.balancedWeek",
+      "coach.hint.strongConsistency",
+      "coach.hint.useRecentFoods",
+      "coach.hint.useLatestLogs",
+      "coach.hint.useReminders",
+    ] as const;
+
+    assert.equal(hintKeys.length, 13);
+
+    for (const key of hintKeys) {
+      assert.notEqual(t("en", key), "");
+      assert.notEqual(t("ru", key), "");
+    }
   });
 });
 
