@@ -14,8 +14,11 @@ import {
 } from "../time/timezone.js";
 import type {
   BodyweightRecord,
+  CoachingHintKey,
+  ProgressInsightLabel,
   ProgressSummary,
   ProgressWeight,
+  WeeklyInsightLabel,
   WeeklyRecapSummary,
   WeeklyRecapStatusLabel,
   WeightParseResult,
@@ -70,6 +73,8 @@ export function buildProgressSummary(
       previousDelta: null,
       weekBaseline: null,
       weekDelta: null,
+      insightLabel: "no_data",
+      coachingHint: "start_with_weight",
     };
   }
 
@@ -82,7 +87,10 @@ export function buildProgressSummary(
         record.checkedAt.getTime() <= latestWeekCutoff.getTime(),
     ) ?? null;
 
-  return {
+  const baseSummary: Omit<
+    Extract<ProgressSummary, { status: "partial" | "complete" }>,
+    "insightLabel" | "coachingHint"
+  > = {
     status: previous ? "complete" : "partial",
     latest,
     previous,
@@ -93,6 +101,17 @@ export function buildProgressSummary(
     weekDelta: weekBaseline
       ? roundToOneDecimal(latest.weightKg - weekBaseline.weightKg)
       : null,
+  };
+  const insightLabel = getProgressInsightLabel(baseSummary);
+
+  return {
+    ...baseSummary,
+    insightLabel,
+    coachingHint: getProgressCoachingHint({
+      ...baseSummary,
+      insightLabel,
+      coachingHint: "steady_progress",
+    }),
   };
 }
 
@@ -170,6 +189,8 @@ export function buildWeeklySummary(input: {
     previousWeightKg,
     weightDeltaKg,
     statusLabel: getWeeklyRecapStatusLabel(input),
+    insightLabel: getWeeklyInsightLabel(input),
+    coachingHint: getWeeklyCoachingHint(input),
   };
 }
 
@@ -431,6 +452,12 @@ export function formatWeeklySummary(
     t(language, "summary.status", {
       status: t(language, weeklyRecapStatusLabelKey[summary.statusLabel]),
     }),
+    t(language, "summary.insight", {
+      insight: t(language, weeklyInsightLabelKey[summary.insightLabel]),
+    }),
+    t(language, "summary.hint", {
+      hint: t(language, coachingHintKey[summary.coachingHint]),
+    }),
   ].join("\n");
 }
 
@@ -462,6 +489,12 @@ export function formatProgressSummary(
       : t(language, "progress.deltaWeek", {
           delta: formatSignedDelta(summary.weekDelta),
         }),
+    t(language, "progress.insight", {
+      insight: t(language, progressInsightLabelKey[summary.insightLabel]),
+    }),
+    t(language, "progress.hint", {
+      hint: t(language, coachingHintKey[summary.coachingHint]),
+    }),
     summary.status === "partial"
       ? t(language, "progress.insufficientComparison")
       : "",
@@ -495,6 +528,45 @@ const weeklyRecapStatusLabelKey: Record<
   insufficient_data: "summary.status.insufficientData",
 };
 
+const progressInsightLabelKey: Record<
+  ProgressInsightLabel,
+  Parameters<typeof t>[1]
+> = {
+  no_data: "progress.insight.noData",
+  first_entry: "progress.insight.firstEntry",
+  weight_stable: "progress.insight.weightStable",
+  weight_trending_down: "progress.insight.weightTrendingDown",
+  weight_trending_up: "progress.insight.weightTrendingUp",
+  weight_change_attention: "progress.insight.weightChangeAttention",
+};
+
+const weeklyInsightLabelKey: Record<
+  WeeklyInsightLabel,
+  Parameters<typeof t>[1]
+> = {
+  no_activity: "summary.insight.noActivity",
+  nutrition_only: "summary.insight.nutritionOnly",
+  training_only: "summary.insight.trainingOnly",
+  mixed_activity: "summary.insight.mixedActivity",
+  consistent_week: "summary.insight.consistentWeek",
+};
+
+const coachingHintKey: Record<CoachingHintKey, Parameters<typeof t>[1]> = {
+  start_with_weight: "coach.hint.startWithWeight",
+  log_second_weight: "coach.hint.logSecondWeight",
+  steady_progress: "coach.hint.steadyProgress",
+  review_fast_change: "coach.hint.reviewFastChange",
+  keep_weekly_checkin: "coach.hint.keepWeeklyCheckin",
+  log_first_meal: "coach.hint.logFirstMeal",
+  add_workout: "coach.hint.addWorkout",
+  add_meal_logging: "coach.hint.addMealLogging",
+  balanced_week: "coach.hint.balancedWeek",
+  strong_consistency: "coach.hint.strongConsistency",
+  use_recent_foods: "coach.hint.useRecentFoods",
+  use_latest_logs: "coach.hint.useLatestLogs",
+  use_reminders: "coach.hint.useReminders",
+};
+
 function getWeeklyRecapStatusLabel(input: {
   mealCount: number;
   workoutCount: number;
@@ -512,6 +584,110 @@ function getWeeklyRecapStatusLabel(input: {
   }
 
   return "needs_more_consistency";
+}
+
+export function getProgressInsightLabel(
+  summary:
+    | ProgressSummary
+    | Omit<
+        Extract<ProgressSummary, { status: "partial" | "complete" }>,
+        "insightLabel" | "coachingHint"
+      >,
+): ProgressInsightLabel {
+  if (summary.status === "empty") {
+    return "no_data";
+  }
+
+  if (summary.previous === null) {
+    return "first_entry";
+  }
+
+  const delta = summary.weekDelta ?? summary.previousDelta ?? 0;
+
+  if (Math.abs(delta) >= 1.5) {
+    return "weight_change_attention";
+  }
+
+  if (Math.abs(delta) <= 0.3) {
+    return "weight_stable";
+  }
+
+  return delta < 0 ? "weight_trending_down" : "weight_trending_up";
+}
+
+export function getProgressCoachingHint(
+  summary: ProgressSummary,
+): CoachingHintKey {
+  if (summary.status === "empty") {
+    return "start_with_weight";
+  }
+
+  if (summary.status === "partial") {
+    return "log_second_weight";
+  }
+
+  if (summary.insightLabel === "weight_change_attention") {
+    return "review_fast_change";
+  }
+
+  if (summary.weekDelta !== null) {
+    return "keep_weekly_checkin";
+  }
+
+  return "steady_progress";
+}
+
+export function getWeeklyInsightLabel(input: {
+  mealCount: number;
+  workoutCount: number;
+}): WeeklyInsightLabel {
+  if (input.mealCount === 0 && input.workoutCount === 0) {
+    return "no_activity";
+  }
+
+  if (input.mealCount >= 7 && input.workoutCount >= 2) {
+    return "consistent_week";
+  }
+
+  if (input.mealCount > 0 && input.workoutCount > 0) {
+    return "mixed_activity";
+  }
+
+  return input.mealCount > 0 ? "nutrition_only" : "training_only";
+}
+
+export function getWeeklyCoachingHint(input: {
+  mealCount: number;
+  workoutCount: number;
+  progressSummary: ProgressSummary;
+}): CoachingHintKey {
+  if (input.mealCount === 0 && input.workoutCount === 0) {
+    return input.progressSummary.status === "empty"
+      ? "start_with_weight"
+      : "log_first_meal";
+  }
+
+  if (input.mealCount > 0 && input.workoutCount === 0) {
+    return "add_workout";
+  }
+
+  if (input.mealCount === 0 && input.workoutCount > 0) {
+    return "add_meal_logging";
+  }
+
+  if (input.mealCount >= 7 && input.workoutCount >= 2) {
+    return "strong_consistency";
+  }
+
+  if (input.mealCount >= 3 && input.workoutCount >= 1) {
+    return "use_recent_foods";
+  }
+
+  if (input.progressSummary.status !== "empty") {
+    return "use_latest_logs";
+  }
+
+  return "use_reminders";
 }
 
 function toProgressWeight(record: BodyweightRecord): ProgressWeight {

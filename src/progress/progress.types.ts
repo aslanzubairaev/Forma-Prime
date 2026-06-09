@@ -17,6 +17,36 @@ export type ProgressWeight = {
   checkedAt: Date;
 };
 
+export type ProgressInsightLabel =
+  | "no_data"
+  | "first_entry"
+  | "weight_stable"
+  | "weight_trending_down"
+  | "weight_trending_up"
+  | "weight_change_attention";
+
+export type WeeklyInsightLabel =
+  | "no_activity"
+  | "nutrition_only"
+  | "training_only"
+  | "mixed_activity"
+  | "consistent_week";
+
+export type CoachingHintKey =
+  | "start_with_weight"
+  | "log_second_weight"
+  | "steady_progress"
+  | "review_fast_change"
+  | "keep_weekly_checkin"
+  | "log_first_meal"
+  | "add_workout"
+  | "add_meal_logging"
+  | "balanced_week"
+  | "strong_consistency"
+  | "use_recent_foods"
+  | "use_latest_logs"
+  | "use_reminders";
+
 export type ProgressSummary =
   | {
       status: "empty";
@@ -25,6 +55,8 @@ export type ProgressSummary =
       previousDelta: null;
       weekBaseline: null;
       weekDelta: null;
+      insightLabel: ProgressInsightLabel;
+      coachingHint: CoachingHintKey;
     }
   | {
       status: "partial" | "complete";
@@ -33,6 +65,8 @@ export type ProgressSummary =
       previousDelta: number | null;
       weekBaseline: ProgressWeight | null;
       weekDelta: number | null;
+      insightLabel: ProgressInsightLabel;
+      coachingHint: CoachingHintKey;
     };
 
 export type WeeklyCheckinPayload = {
@@ -63,4 +97,6 @@ export type WeeklyRecapSummary = {
   previousWeightKg: number | null;
   weightDeltaKg: number | null;
   statusLabel: WeeklyRecapStatusLabel;
+  insightLabel: WeeklyInsightLabel;
+  coachingHint: CoachingHintKey;
 };
