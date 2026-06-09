@@ -11,7 +11,9 @@ import { registerStartCommand } from "./commands/start.js";
 import { registerTodayCommand } from "./commands/today.js";
 import { registerWorkoutCommand } from "./commands/workout.js";
 import { registerWorkoutsCommand } from "./commands/workouts.js";
+import { registerFallbackHandlers } from "./fallback.js";
 import { registerFoodLoggingHandlers } from "./food-logging.js";
+import { registerHelpCommand } from "./help.js";
 import { registerOnboardingHandlers } from "./onboarding.js";
 import { registerProgressHandlers } from "./progress.js";
 import { registerReminderHandlers } from "./reminders.js";
@@ -23,6 +25,7 @@ export function createBot(): Bot {
   const bot = new Bot(env.BOT_TOKEN);
 
   registerStartCommand(bot);
+  registerHelpCommand(bot);
   registerFoodCommand(bot);
   registerTodayCommand(bot);
   registerMealsCommand(bot);
@@ -40,6 +43,7 @@ export function createBot(): Bot {
   );
 
   bot.callbackQuery(menuActionsPattern, handleMainMenuAction);
+  registerFallbackHandlers(bot);
 
   bot.catch((error) => {
     logger.error({ error }, "Bot update failed");

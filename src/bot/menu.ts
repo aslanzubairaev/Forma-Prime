@@ -3,10 +3,11 @@ import type { Context } from "grammy";
 import { normalizeLanguage, t, type SupportedLanguage } from "../i18n/index.js";
 import { getProfileByUserId } from "../onboarding/onboarding.service.js";
 import { upsertTelegramUser } from "../users/user.service.js";
+import { formatHelpText } from "./help.js";
 import { mainMenuKeyboard, menuAction } from "./keyboards.js";
 import { startCheckinFlow } from "./progress.js";
 
-function mainMenuText(language: SupportedLanguage): string {
+export function mainMenuText(language: SupportedLanguage): string {
   return [
     t(language, "menu.title"),
     "",
@@ -14,11 +15,10 @@ function mainMenuText(language: SupportedLanguage): string {
   ].join("\n");
 }
 
-const placeholderKeyByAction: Record<string, Parameters<typeof t>[1]> = {
-  [menuAction.nutrition]: "menu.placeholder.nutrition",
-  [menuAction.workout]: "menu.placeholder.workout",
-  [menuAction.profile]: "menu.placeholder.profile",
-  [menuAction.help]: "menu.placeholder.help",
+const textKeyByAction: Partial<Record<string, Parameters<typeof t>[1]>> = {
+  [menuAction.nutrition]: "menu.section.nutrition",
+  [menuAction.workout]: "menu.section.workout",
+  [menuAction.progress]: "menu.section.progress",
 };
 
 export async function replyWithMainMenu(
@@ -40,9 +40,16 @@ export async function handleMainMenuAction(ctx: Context): Promise<void> {
   const profile = await getProfileByUserId(user.id);
   const language = normalizeLanguage(profile?.preferredLanguage);
   const callbackData = ctx.callbackQuery?.data;
-  const key = callbackData ? placeholderKeyByAction[callbackData] : undefined;
+  const key = callbackData ? textKeyByAction[callbackData] : undefined;
 
   await ctx.answerCallbackQuery();
+
+  if (callbackData === menuAction.help) {
+    await ctx.reply(formatHelpText(language), {
+      reply_markup: mainMenuKeyboard(language),
+    });
+    return;
+  }
 
   if (callbackData === menuAction.checkin) {
     await startCheckinFlow(ctx);

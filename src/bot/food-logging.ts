@@ -1,5 +1,5 @@
 import { ConversationStep } from "@prisma/client";
-import { InlineKeyboard, type Bot, type Context } from "grammy";
+import { InlineKeyboard, type Bot, type Context, type NextFunction } from "grammy";
 
 import {
   claimConversationStep,
@@ -100,14 +100,16 @@ export function formatDailyTotals(
   ].join("\n");
 }
 
-async function handleFoodText(ctx: Context): Promise<void> {
+async function handleFoodText(ctx: Context, next: NextFunction): Promise<void> {
   if (!ctx.from || !ctx.message?.text) {
+    await next();
     return;
   }
 
   const rawText = ctx.message.text.trim();
 
   if (rawText.startsWith("/")) {
+    await next();
     return;
   }
 

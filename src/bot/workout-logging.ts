@@ -349,6 +349,7 @@ async function handleWorkoutText(
   const rawText = ctx.message.text.trim();
 
   if (rawText.startsWith("/")) {
+    await next();
     return;
   }
 
