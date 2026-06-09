@@ -200,6 +200,23 @@ export async function getLatestWorkoutLog(
   });
 }
 
+export function selectLatestWorkoutLog<T extends {
+  createdAt: Date;
+  id: string;
+}>(logs: T[]): T | null {
+  return (
+    [...logs].sort((left, right) => {
+      const createdDelta = right.createdAt.getTime() - left.createdAt.getTime();
+
+      if (createdDelta !== 0) {
+        return createdDelta;
+      }
+
+      return right.id.localeCompare(left.id);
+    })[0] ?? null
+  );
+}
+
 export function buildExerciseLogUpdateData(input: {
   exerciseId?: string | null;
   exerciseName: string;
@@ -255,12 +272,7 @@ export async function deleteLatestWorkoutLog(input: {
 
   return prisma.$transaction(async (tx) => {
     const deleteResult = await tx.exerciseLog.deleteMany({
-      where: {
-        id: input.exerciseLogId,
-        workoutSession: {
-          userId: input.userId,
-        },
-      },
+      where: buildLatestWorkoutLogDeleteWhere(input),
     });
 
     if (deleteResult.count !== 1) {
@@ -274,8 +286,10 @@ export async function deleteLatestWorkoutLog(input: {
     });
 
     if (
-      remainingLogCount === 0 &&
-      latest.workoutSession.status === WorkoutSessionStatus.COMPLETED
+      shouldDeleteEmptyWorkoutSession({
+        remainingLogCount,
+        status: latest.workoutSession.status,
+      })
     ) {
       await tx.workoutSession.deleteMany({
         where: {
@@ -288,6 +302,28 @@ export async function deleteLatestWorkoutLog(input: {
 
     return true;
   });
+}
+
+export function buildLatestWorkoutLogDeleteWhere(input: {
+  userId: string;
+  exerciseLogId: string;
+}): Prisma.ExerciseLogWhereInput {
+  return {
+    id: input.exerciseLogId,
+    workoutSession: {
+      userId: input.userId,
+    },
+  };
+}
+
+export function shouldDeleteEmptyWorkoutSession(input: {
+  remainingLogCount: number;
+  status: WorkoutSessionStatus;
+}): boolean {
+  return (
+    input.remainingLogCount === 0 &&
+    input.status === WorkoutSessionStatus.COMPLETED
+  );
 }
 
 export async function finishActiveWorkoutSession(userId: string) {

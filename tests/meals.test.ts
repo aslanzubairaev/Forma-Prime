@@ -11,7 +11,11 @@ const { formatDailyTotals, formatRecentFoods } = await import(
 );
 const {
   buildMealEntryCreateData,
+  buildMealEntryItemsDeleteWhere,
+  buildMealEntryUpdateData,
+  buildLatestMealDeleteWhere,
   buildQuickRelogMealEntryCreateData,
+  selectLatestMealEntry,
   selectRecentFoodsFromItems,
   sumDailyTotals,
 } = await import(
@@ -99,6 +103,49 @@ describe("meal logging", () => {
 
     assert.equal(data.items.create[0].customFood.connect.id, "custom_food_1");
     assert.equal(data.items.create[0].food, undefined);
+  });
+});
+
+describe("latest meal edit/delete", () => {
+  it("selects the latest meal by consumedAt and createdAt", () => {
+    const latest = selectLatestMealEntry([
+      mealEntrySummary("older", "2026-06-08T10:00:00.000Z", "2026-06-08T10:00:01.000Z"),
+      mealEntrySummary("tie-older-created", "2026-06-09T10:00:00.000Z", "2026-06-09T10:00:01.000Z"),
+      mealEntrySummary("latest", "2026-06-09T10:00:00.000Z", "2026-06-09T10:00:02.000Z"),
+    ]);
+
+    assert.equal(latest?.id, "latest");
+  });
+
+  it("builds latest meal update data without mutating original identity", () => {
+    const data = buildMealEntryUpdateData({
+      rawText: "200 g chicken breast",
+      meal,
+    }) as any;
+
+    assert.equal(data.rawText, "200 g chicken breast");
+    assert.equal(data.totalCalories, 330);
+    assert.equal(data.items.create.length, 1);
+    assert.equal(data.items.create[0].food.connect.id, "food_chicken_breast");
+  });
+
+  it("builds user-scoped latest meal delete filters", () => {
+    assert.deepEqual(buildLatestMealDeleteWhere({
+      userId: "user_1",
+      mealEntryId: "meal_1",
+    }), {
+      id: "meal_1",
+      userId: "user_1",
+    });
+    assert.deepEqual(buildMealEntryItemsDeleteWhere({
+      userId: "user_1",
+      mealEntryId: "meal_1",
+    }), {
+      mealEntryId: "meal_1",
+      mealEntry: {
+        userId: "user_1",
+      },
+    });
   });
 });
 
@@ -345,5 +392,13 @@ function recentItem(
     mealEntry: {
       consumedAt: new Date(consumedAt),
     },
+  };
+}
+
+function mealEntrySummary(id: string, consumedAt: string, createdAt: string) {
+  return {
+    id,
+    consumedAt: new Date(consumedAt),
+    createdAt: new Date(createdAt),
   };
 }

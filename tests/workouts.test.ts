@@ -9,10 +9,14 @@ process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgr
 const { parseWorkoutSet } = await import("../src/workouts/workout-parser.js");
 const {
   buildExerciseLogCreateData,
+  buildExerciseLogUpdateData,
+  buildLatestWorkoutLogDeleteWhere,
   buildWorkoutSessionSummary,
   canAcceptWorkoutLog,
   getNextSetNumber,
+  selectLatestWorkoutLog,
   selectActiveWorkoutSession,
+  shouldDeleteEmptyWorkoutSession,
 } = await import("../src/workouts/workout.service.js");
 
 describe("workout parser", () => {
@@ -151,6 +155,68 @@ describe("workout persistence payloads", () => {
   });
 });
 
+describe("latest workout edit/delete", () => {
+  it("selects the latest workout log by createdAt and id", () => {
+    const latest = selectLatestWorkoutLog([
+      workoutLogSummary("log_a", "2026-06-09T10:00:00.000Z"),
+      workoutLogSummary("log_c", "2026-06-09T11:00:00.000Z"),
+      workoutLogSummary("log_b", "2026-06-09T11:00:00.000Z"),
+    ]);
+
+    assert.equal(latest?.id, "log_c");
+  });
+
+  it("builds latest workout set update data", () => {
+    const data = buildExerciseLogUpdateData({
+      exerciseId: "exercise_1",
+      exerciseName: "Bench press",
+      weightKg: 62.5,
+      reps: 7,
+    }) as any;
+
+    assert.equal(data.exerciseId, "exercise_1");
+    assert.equal(data.exerciseName, "Bench press");
+    assert.equal(data.weightKg, 62.5);
+    assert.equal(data.reps, 7);
+  });
+
+  it("builds user-scoped latest workout delete filters", () => {
+    assert.deepEqual(buildLatestWorkoutLogDeleteWhere({
+      userId: "user_1",
+      exerciseLogId: "log_1",
+    }), {
+      id: "log_1",
+      workoutSession: {
+        userId: "user_1",
+      },
+    });
+  });
+
+  it("deletes only completed empty sessions after latest set removal", () => {
+    assert.equal(
+      shouldDeleteEmptyWorkoutSession({
+        remainingLogCount: 0,
+        status: WorkoutSessionStatus.COMPLETED,
+      }),
+      true,
+    );
+    assert.equal(
+      shouldDeleteEmptyWorkoutSession({
+        remainingLogCount: 0,
+        status: WorkoutSessionStatus.IN_PROGRESS,
+      }),
+      false,
+    );
+    assert.equal(
+      shouldDeleteEmptyWorkoutSession({
+        remainingLogCount: 1,
+        status: WorkoutSessionStatus.COMPLETED,
+      }),
+      false,
+    );
+  });
+});
+
 describe("workout summaries", () => {
   it("builds active session summary", () => {
     const summary = buildWorkoutSessionSummary({
@@ -203,5 +269,12 @@ function logFor(
     rpe: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+  };
+}
+
+function workoutLogSummary(id: string, createdAt: string) {
+  return {
+    id,
+    createdAt: new Date(createdAt),
   };
 }

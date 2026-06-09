@@ -133,6 +133,23 @@ export async function getLatestMealEntry(
   });
 }
 
+export function selectLatestMealEntry<T extends {
+  consumedAt: Date;
+  createdAt: Date;
+}>(entries: T[]): T | null {
+  return (
+    [...entries].sort((left, right) => {
+      const consumedDelta = right.consumedAt.getTime() - left.consumedAt.getTime();
+
+      if (consumedDelta !== 0) {
+        return consumedDelta;
+      }
+
+      return right.createdAt.getTime() - left.createdAt.getTime();
+    })[0] ?? null
+  );
+}
+
 export async function updateLatestMealEntry(input: {
   userId: string;
   mealEntryId: string;
@@ -147,12 +164,7 @@ export async function updateLatestMealEntry(input: {
 
   return prisma.$transaction(async (tx) => {
     await tx.mealEntryItem.deleteMany({
-      where: {
-        mealEntryId: input.mealEntryId,
-        mealEntry: {
-          userId: input.userId,
-        },
-      },
+      where: buildMealEntryItemsDeleteWhere(input),
     });
 
     return tx.mealEntry.update({
@@ -181,13 +193,32 @@ export async function deleteLatestMealEntry(input: {
   }
 
   const result = await prisma.mealEntry.deleteMany({
-    where: {
-      id: input.mealEntryId,
-      userId: input.userId,
-    },
+    where: buildLatestMealDeleteWhere(input),
   });
 
   return result.count === 1;
+}
+
+export function buildMealEntryItemsDeleteWhere(input: {
+  userId: string;
+  mealEntryId: string;
+}): Prisma.MealEntryItemWhereInput {
+  return {
+    mealEntryId: input.mealEntryId,
+    mealEntry: {
+      userId: input.userId,
+    },
+  };
+}
+
+export function buildLatestMealDeleteWhere(input: {
+  userId: string;
+  mealEntryId: string;
+}): Prisma.MealEntryWhereInput {
+  return {
+    id: input.mealEntryId,
+    userId: input.userId,
+  };
 }
 
 export async function getDailyNutritionSummary(
