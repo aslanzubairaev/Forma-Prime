@@ -15,6 +15,22 @@ const trailingQuantityPattern = new RegExp(
   `^(.+?)\\s+(\\d+(?:[.,]\\d+)?)\\s*${gramsUnitPattern}$`,
   "iu",
 );
+const servingQuantityPattern = /^(\d+(?:[.,]\d+)?)\s+(.+)$/iu;
+
+const servingRules = [
+  {
+    terms: ["egg", "eggs", "яйцо", "яйца", "яиц", "яйцами"],
+    normalizedLabel: "яйца",
+    unit: "piece",
+    gramsPerServing: 50,
+  },
+  {
+    terms: ["protein", "протеин", "протеина"],
+    normalizedLabel: "протеин",
+    unit: "serving",
+    gramsPerServing: 30,
+  },
+] as const;
 
 export function parseFoodLogMessage(input: string): FoodLogParseResult {
   const parts = splitFoodLogParts(input)
@@ -83,6 +99,12 @@ function parseFoodLogPart(part: string): ParsedFoodItemCandidate | null {
     return buildParsedItem(trailingMatch[1], trailingMatch[2]);
   }
 
+  const servingMatch = part.match(servingQuantityPattern);
+
+  if (servingMatch) {
+    return buildServingParsedItem(servingMatch[2], servingMatch[1]);
+  }
+
   return null;
 }
 
@@ -112,5 +134,43 @@ function buildParsedItem(
     quantity,
     unit: "g",
     grams: quantity,
+  };
+}
+
+function buildServingParsedItem(
+  rawLabel: string | undefined,
+  rawQuantity: string | undefined,
+): ParsedFoodItemCandidate | null {
+  if (!rawLabel || !rawQuantity) {
+    return null;
+  }
+
+  const quantity = Number(rawQuantity.replace(",", "."));
+
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return null;
+  }
+
+  const label = rawLabel.trim();
+
+  if (!label) {
+    return null;
+  }
+
+  const normalizedLabel = normalizeFoodText(label);
+  const rule = servingRules.find((candidate) =>
+    candidate.terms.some((term) => normalizedLabel.includes(term)),
+  );
+
+  if (!rule) {
+    return null;
+  }
+
+  return {
+    rawLabel: label,
+    normalizedLabel: rule.normalizedLabel,
+    quantity,
+    unit: rule.unit,
+    grams: quantity * rule.gramsPerServing,
   };
 }

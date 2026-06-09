@@ -2,7 +2,7 @@ export type ParsedFoodItemCandidate = {
   rawLabel: string;
   normalizedLabel: string;
   quantity: number;
-  unit: "g";
+  unit: "g" | "piece" | "serving";
   grams: number;
 };
 
@@ -70,7 +70,7 @@ export type CalculatedMealItem = {
   matchedName: string;
   rawLabel: string;
   quantity: number;
-  unit: "g";
+  unit: "g" | "piece" | "serving";
   grams: number;
   calories: number;
   proteinG: number;

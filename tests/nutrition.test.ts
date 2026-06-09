@@ -87,6 +87,16 @@ const cookedRice: NutritionFoodRecord = {
   ],
 };
 
+const egg: NutritionFoodRecord = seedToNutritionFoodRecord(
+  "food_egg",
+  essentialSeedFoods.find((food) => food.slug === "egg-whole")!,
+);
+
+const wheyProtein: NutritionFoodRecord = seedToNutritionFoodRecord(
+  "food_whey",
+  essentialSeedFoods.find((food) => food.slug === "whey-protein-powder")!,
+);
+
 describe("food parser", () => {
   it("parses 200 g chicken breast", () => {
     const result = parseFoodLogMessage("200 g chicken breast");
@@ -108,6 +118,27 @@ describe("food parser", () => {
     const result = parseFoodLogMessage("200 г куриной грудки");
 
     assert.equal(result.items[0]?.rawLabel, "куриной грудки");
+    assert.equal(result.items[0]?.grams, 200);
+  });
+
+  it("parses compact gram unit without a space", () => {
+    const result = parseFoodLogMessage("260гр жареной грудки");
+
+    assert.equal(result.rejectedParts.length, 0);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0]?.rawLabel, "жареной грудки");
+    assert.equal(result.items[0]?.grams, 260);
+  });
+
+  it("parses common count-based egg input as grams", () => {
+    const result = parseFoodLogMessage("4 варенных яйца");
+
+    assert.equal(result.rejectedParts.length, 0);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0]?.rawLabel, "варенных яйца");
+    assert.equal(result.items[0]?.normalizedLabel, "яйца");
+    assert.equal(result.items[0]?.unit, "piece");
+    assert.equal(result.items[0]?.quantity, 4);
     assert.equal(result.items[0]?.grams, 200);
   });
 
@@ -162,6 +193,22 @@ describe("food parser", () => {
     assert.equal(result.items[1]?.rawLabel, "риса");
     assert.equal(result.items[1]?.grams, 250);
   });
+
+  it("parses mixed live free text when every part has a supported quantity form", () => {
+    const result = parseFoodLogMessage(
+      "260гр жареной грудки и 4 варенных яиц и 3 порции протеина",
+    );
+
+    assert.equal(result.rejectedParts.length, 0);
+    assert.equal(result.items.length, 3);
+    assert.equal(result.items[0]?.rawLabel, "жареной грудки");
+    assert.equal(result.items[0]?.grams, 260);
+    assert.equal(result.items[1]?.normalizedLabel, "яйца");
+    assert.equal(result.items[1]?.grams, 200);
+    assert.equal(result.items[2]?.normalizedLabel, "протеин");
+    assert.equal(result.items[2]?.unit, "serving");
+    assert.equal(result.items[2]?.grams, 90);
+  });
 });
 
 describe("food matcher", () => {
@@ -187,6 +234,31 @@ describe("food matcher", () => {
 
     assert.equal(result.status, "ambiguous");
     assert.equal(result.status === "ambiguous" ? result.options.length : 0, 2);
+  });
+
+  it("matches live chicken, egg, and protein aliases", () => {
+    const foods = [
+      seedToNutritionFoodRecord("food_chicken", essentialSeedFoods[0]!),
+      cookedRice,
+      egg,
+      wheyProtein,
+    ];
+    const chickenMatch = matchFoodCandidate(candidateFor("жареной грудки", 260), foods);
+    const eggMatch = matchFoodCandidate(candidateFor("яйца", 200), foods);
+    const proteinMatch = matchFoodCandidate(candidateFor("протеин", 90), foods);
+
+    assert.equal(
+      chickenMatch.status === "matched" ? chickenMatch.food.slug : "",
+      "chicken-breast-cooked-skinless",
+    );
+    assert.equal(
+      eggMatch.status === "matched" ? eggMatch.food.slug : "",
+      "egg-whole",
+    );
+    assert.equal(
+      proteinMatch.status === "matched" ? proteinMatch.food.slug : "",
+      "whey-protein-powder",
+    );
   });
 });
 
@@ -234,8 +306,11 @@ describe("essential food catalog seed", () => {
     assert.ok(rice);
     assert.ok(chicken.aliases.en.includes("chicken breast"));
     assert.ok(chicken.aliases.ru.includes("куриной грудки"));
+    assert.ok(chicken.aliases.ru.includes("жареной грудки"));
     assert.ok(rice.aliases.en.includes("cooked rice"));
     assert.ok(rice.aliases.ru.includes("риса"));
+    assert.ok(essentialSeedFoods.some((food) => food.slug === "egg-whole"));
+    assert.ok(essentialSeedFoods.some((food) => food.slug === "whey-protein-powder"));
   });
 
   it("builds idempotent upsert data for startup catalog repair", () => {
@@ -264,7 +339,10 @@ describe("essential food catalog seed", () => {
   it("matches basic examples when startup seed records are loaded", () => {
     const seededFoods = [
       seedToNutritionFoodRecord("food_chicken", essentialSeedFoods[0]!),
-      seedToNutritionFoodRecord("food_rice", essentialSeedFoods[1]!),
+      seedToNutritionFoodRecord(
+        "food_rice",
+        essentialSeedFoods.find((food) => food.slug === "white-rice-cooked")!,
+      ),
     ];
     const chickenMatch = matchFoodCandidate(
       candidateFor("куриной грудки", 200),
