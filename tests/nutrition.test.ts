@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { matchFoodCandidate } from "../src/nutrition/food-matcher.js";
+import {
+  buildNutritionFoodAliasCreateData,
+  buildNutritionFoodUpsertArgs,
+  ensureEssentialNutritionFoodsSeeded,
+  essentialSeedFoods,
+} from "../src/nutrition/food-catalog.seed.js";
 import { parseFoodLogMessage } from "../src/nutrition/food-parser.js";
 import {
   calculateMeal,
@@ -215,6 +221,108 @@ describe("nutrition calculator", () => {
   });
 });
 
+describe("essential food catalog seed", () => {
+  it("includes live food logging examples as seeded aliases", () => {
+    const chicken = essentialSeedFoods.find(
+      (food) => food.slug === "chicken-breast-cooked-skinless",
+    );
+    const rice = essentialSeedFoods.find(
+      (food) => food.slug === "white-rice-cooked",
+    );
+
+    assert.ok(chicken);
+    assert.ok(rice);
+    assert.ok(chicken.aliases.en.includes("chicken breast"));
+    assert.ok(chicken.aliases.ru.includes("куриной грудки"));
+    assert.ok(rice.aliases.en.includes("cooked rice"));
+    assert.ok(rice.aliases.ru.includes("риса"));
+  });
+
+  it("builds idempotent upsert data for startup catalog repair", () => {
+    const data = buildNutritionFoodUpsertArgs(essentialSeedFoods[0]!);
+
+    assert.equal(data.where.slug, "chicken-breast-cooked-skinless");
+    assert.equal((data.create as any).isActive, true);
+    assert.equal((data.update as any).isActive, true);
+  });
+
+  it("normalizes seeded aliases for matcher lookup", () => {
+    const aliases = buildNutritionFoodAliasCreateData(
+      "food_chicken",
+      essentialSeedFoods[0]!,
+    );
+
+    assert.ok(
+      aliases.some(
+        (alias) =>
+          alias.alias === "куриной грудки" &&
+          alias.normalizedAlias === "куриной грудки",
+      ),
+    );
+  });
+
+  it("matches basic examples when startup seed records are loaded", () => {
+    const seededFoods = [
+      seedToNutritionFoodRecord("food_chicken", essentialSeedFoods[0]!),
+      seedToNutritionFoodRecord("food_rice", essentialSeedFoods[1]!),
+    ];
+    const chickenMatch = matchFoodCandidate(
+      candidateFor("куриной грудки", 200),
+      seededFoods,
+    );
+    const riceMatch = matchFoodCandidate(
+      candidateFor("cooked rice", 250),
+      seededFoods,
+    );
+
+    assert.equal(
+      chickenMatch.status === "matched" ? chickenMatch.food.slug : "",
+      "chicken-breast-cooked-skinless",
+    );
+    assert.equal(
+      riceMatch.status === "matched" ? riceMatch.food.slug : "",
+      "white-rice-cooked",
+    );
+  });
+
+  it("does not recreate aliases that already exist during startup repair", async () => {
+    const createdAliases: unknown[] = [];
+
+    await ensureEssentialNutritionFoodsSeeded({
+      nutritionFood: {
+        upsert: async (args: any) => ({
+          id: args.where.slug,
+        }),
+      } as any,
+      nutritionFoodAlias: {
+        findMany: async ({ where }: any) =>
+          where.foodId === "chicken-breast-cooked-skinless"
+            ? [
+                {
+                  languageCode: "en",
+                  normalizedAlias: "chicken breast",
+                },
+              ]
+            : [],
+        create: async (args: any) => {
+          createdAliases.push(args.data);
+          return {};
+        },
+      } as any,
+    });
+
+    assert.equal(
+      createdAliases.some(
+        (alias: any) =>
+          alias.languageCode === "en" &&
+          alias.normalizedAlias === "chicken breast",
+      ),
+      false,
+    );
+    assert.ok(createdAliases.length > 0);
+  });
+});
+
 function candidateFor(label: string, grams: number): ParsedFoodItemCandidate {
   return {
     rawLabel: label,
@@ -227,4 +335,27 @@ function candidateFor(label: string, grams: number): ParsedFoodItemCandidate {
 
 function assertApproxEqual(actual: number, expected: number): void {
   assert.ok(Math.abs(actual - expected) < 0.000001);
+}
+
+function seedToNutritionFoodRecord(
+  id: string,
+  seed: (typeof essentialSeedFoods)[number],
+): NutritionFoodRecord {
+  return {
+    id,
+    slug: seed.slug,
+    nameRu: seed.nameRu,
+    nameEn: seed.nameEn,
+    caloriesPer100g: seed.caloriesPer100g,
+    proteinPer100g: seed.proteinPer100g,
+    fatPer100g: seed.fatPer100g,
+    carbsPer100g: seed.carbsPer100g,
+    aliases: Object.entries(seed.aliases).flatMap(([languageCode, aliases]) =>
+      aliases.map((alias) => ({
+        alias,
+        languageCode,
+        normalizedAlias: alias.toLowerCase(),
+      })),
+    ),
+  };
 }

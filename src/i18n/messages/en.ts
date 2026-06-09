@@ -34,9 +34,9 @@ export const en = {
   "help.reminders": "/reminders or /remindme - view or configure reminders.",
   "help.menuHint": "Use /start anytime to return to the menu.",
 
-  "food.command.help": "Log exact amounts in grams, for example: 200 g chicken breast, 250 g cooked rice. AI draft parsing may assist with messy text when a provider is configured.",
-  "food.parseFailed": "I could not read this food log. Try: 200 g chicken breast, or use /food.",
-  "food.notFound": "I could not find \"{label}\" in the food database.",
+  "food.command.help": "Log exact amounts in grams, for example: 200 g chicken breast, 250 g cooked rice.",
+  "food.parseFailed": "I could not read this food log. Use grams, for example: 200 g chicken breast.",
+  "food.notFound": "I could not find \"{label}\" in the food catalog. Try a simpler food name or save it with /customfood.",
   "food.ambiguous": "I found several matches for \"{label}\". Please choose one.",
   "food.clarificationExpired": "That action expired. Send the meal again or use /food.",
   "food.recorded": "Recorded meal:",

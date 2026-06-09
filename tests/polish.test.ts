@@ -38,6 +38,11 @@ describe("help and discoverability polish", () => {
     assert.match(text, /\/finishworkout/);
     assert.match(text, /\/checkin/);
   });
+
+  it("does not expose AI provider setup in normal food help", () => {
+    assert.doesNotMatch(t("en", "food.command.help"), /AI|provider/i);
+    assert.doesNotMatch(t("ru", "food.command.help"), /AI|провайдер/i);
+  });
 });
 
 describe("empty state and stale flow polish", () => {

@@ -1,5 +1,6 @@
 import { createBot } from "./bot/bot.js";
 import { disconnectPrisma } from "./db/prisma.js";
+import { ensureEssentialNutritionFoodsSeeded } from "./nutrition/food-catalog.seed.js";
 
 const bot = createBot();
 
@@ -17,7 +18,12 @@ process.once("SIGTERM", () => {
   void shutdown("SIGTERM");
 });
 
-bot.start().catch(async (error: unknown) => {
+async function startBot(): Promise<void> {
+  await ensureEssentialNutritionFoodsSeeded();
+  await bot.start();
+}
+
+startBot().catch(async (error: unknown) => {
   console.error("Bot startup failed", error);
   await disconnectPrisma();
   process.exitCode = 1;
