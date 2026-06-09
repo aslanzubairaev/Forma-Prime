@@ -26,6 +26,12 @@ export type DailyNutritionSummary = {
   } | null;
 };
 
+export type LatestMealEntry = Prisma.MealEntryGetPayload<{
+  include: {
+    items: true;
+  };
+}>;
+
 export async function createMealEntry(input: CreateMealEntryInput) {
   return prisma.mealEntry.create({
     data: buildMealEntryCreateData(input),
@@ -52,36 +58,136 @@ export function buildMealEntryCreateData(
     totalFatG: input.meal.totals.fatG,
     totalCarbsG: input.meal.totals.carbsG,
     items: {
-      create: input.meal.items.map((item) => {
-        const data: Prisma.MealEntryItemCreateWithoutMealEntryInput = {
-          matchedName: item.matchedName,
-          quantity: item.quantity,
-          unit: item.unit,
-          grams: item.grams,
-          calories: item.calories,
-          proteinG: item.proteinG,
-          fatG: item.fatG,
-          carbsG: item.carbsG,
-        };
-
-        if (item.food.isCustom) {
-          data.customFood = {
-            connect: {
-              id: item.food.id,
-            },
-          };
-        } else {
-          data.food = {
-            connect: {
-              id: item.food.id,
-            },
-          };
-        }
-
-        return data;
-      }),
+      create: buildMealEntryItemCreateData(input.meal),
     },
   };
+}
+
+export function buildMealEntryUpdateData(input: {
+  rawText: string;
+  meal: CalculatedMeal;
+}): Prisma.MealEntryUpdateInput {
+  return {
+    rawText: input.rawText,
+    totalCalories: input.meal.totals.calories,
+    totalProteinG: input.meal.totals.proteinG,
+    totalFatG: input.meal.totals.fatG,
+    totalCarbsG: input.meal.totals.carbsG,
+    items: {
+      create: buildMealEntryItemCreateData(input.meal),
+    },
+  };
+}
+
+function buildMealEntryItemCreateData(
+  meal: CalculatedMeal,
+): Prisma.MealEntryItemCreateWithoutMealEntryInput[] {
+  return meal.items.map((item) => {
+    const data: Prisma.MealEntryItemCreateWithoutMealEntryInput = {
+      matchedName: item.matchedName,
+      quantity: item.quantity,
+      unit: item.unit,
+      grams: item.grams,
+      calories: item.calories,
+      proteinG: item.proteinG,
+      fatG: item.fatG,
+      carbsG: item.carbsG,
+    };
+
+    if (item.food.isCustom) {
+      data.customFood = {
+        connect: {
+          id: item.food.id,
+        },
+      };
+    } else {
+      data.food = {
+        connect: {
+          id: item.food.id,
+        },
+      };
+    }
+
+    return data;
+  });
+}
+
+export async function getLatestMealEntry(
+  userId: string,
+): Promise<LatestMealEntry | null> {
+  return prisma.mealEntry.findFirst({
+    where: {
+      userId,
+    },
+    include: {
+      items: true,
+    },
+    orderBy: [
+      {
+        consumedAt: "desc",
+      },
+      {
+        createdAt: "desc",
+      },
+    ],
+  });
+}
+
+export async function updateLatestMealEntry(input: {
+  userId: string;
+  mealEntryId: string;
+  rawText: string;
+  meal: CalculatedMeal;
+}): Promise<LatestMealEntry | null> {
+  const latest = await getLatestMealEntry(input.userId);
+
+  if (latest?.id !== input.mealEntryId) {
+    return null;
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.mealEntryItem.deleteMany({
+      where: {
+        mealEntryId: input.mealEntryId,
+        mealEntry: {
+          userId: input.userId,
+        },
+      },
+    });
+
+    return tx.mealEntry.update({
+      where: {
+        id: input.mealEntryId,
+      },
+      data: buildMealEntryUpdateData({
+        rawText: input.rawText,
+        meal: input.meal,
+      }),
+      include: {
+        items: true,
+      },
+    });
+  });
+}
+
+export async function deleteLatestMealEntry(input: {
+  userId: string;
+  mealEntryId: string;
+}): Promise<boolean> {
+  const latest = await getLatestMealEntry(input.userId);
+
+  if (latest?.id !== input.mealEntryId) {
+    return false;
+  }
+
+  const result = await prisma.mealEntry.deleteMany({
+    where: {
+      id: input.mealEntryId,
+      userId: input.userId,
+    },
+  });
+
+  return result.count === 1;
 }
 
 export async function getDailyNutritionSummary(

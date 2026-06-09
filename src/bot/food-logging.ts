@@ -11,10 +11,14 @@ import type { ConversationPayload } from "../conversation/conversation-state.typ
 import { normalizeLanguage, t, type SupportedLanguage } from "../i18n/index.js";
 import {
   createMealEntry,
+  deleteLatestMealEntry,
   getDailyNutritionSummary,
+  getLatestMealEntry,
   getRecentFoods,
   quickRelogMeal,
+  updateLatestMealEntry,
   type DailyNutritionSummary,
+  type LatestMealEntry,
 } from "../meals/meals.service.js";
 import { parseFoodDraft } from "../meals/ai-food-draft.service.js";
 import {
@@ -43,12 +47,21 @@ type FoodEntryPayload = {
 
 const foodChoicePattern = /^food:choose:(\d+):(.+)$/;
 const foodRelogPattern = /^food:relog:(.+)$/;
+const lastMealEditPattern = /^lastmeal:edit:(.+)$/;
+const lastMealDeletePattern = /^lastmeal:delete:(.+)$/;
+const lastMealConfirmDeletePattern = /^lastmeal:confirm_delete:(.+)$/;
+const lastMealCancelAction = "lastmeal:cancel";
 
 export function registerFoodLoggingHandlers(bot: Bot): void {
+  bot.command("lastmeal", handleLastMealCommand);
   bot.command("customfood", handleCustomFoodCommand);
   bot.command("recentfoods", handleRecentFoodsCommand);
   bot.callbackQuery(foodChoicePattern, handleFoodChoiceCallback);
   bot.callbackQuery(foodRelogPattern, handleFoodRelogCallback);
+  bot.callbackQuery(lastMealEditPattern, handleLastMealEditCallback);
+  bot.callbackQuery(lastMealDeletePattern, handleLastMealDeleteCallback);
+  bot.callbackQuery(lastMealConfirmDeletePattern, handleLastMealConfirmDeleteCallback);
+  bot.callbackQuery(lastMealCancelAction, handleLastMealCancelCallback);
   bot.on("message:text", handleFoodText);
 }
 
@@ -103,6 +116,12 @@ async function handleFoodText(ctx: Context): Promise<void> {
   const language = normalizeLanguage(
     profile?.preferredLanguage ?? user.languageCode,
   );
+  const state = await getConversationState(user.id);
+
+  if (state.step === ConversationStep.MEAL_EDIT) {
+    await handleMealEditText(ctx, user.id, BigInt(ctx.from.id), language, rawText, state.payload);
+    return;
+  }
 
   if (!profile?.onboardingCompletedAt) {
     await beginOrResumeOnboarding(ctx, user.id, language);
@@ -110,6 +129,25 @@ async function handleFoodText(ctx: Context): Promise<void> {
   }
 
   await processFoodLog(ctx, user.id, BigInt(ctx.from.id), rawText, language);
+}
+
+async function handleLastMealCommand(ctx: Context): Promise<void> {
+  const identity = await getFoodIdentity(ctx);
+
+  if (!identity) {
+    return;
+  }
+
+  const meal = await getLatestMealEntry(identity.userId);
+
+  if (!meal) {
+    await ctx.reply(t(identity.language, "lastMeal.empty"));
+    return;
+  }
+
+  await ctx.reply(formatLatestMeal(identity.language, meal), {
+    reply_markup: lastMealKeyboard(identity.language, meal.id),
+  });
 }
 
 async function handleCustomFoodCommand(ctx: Context): Promise<void> {
@@ -159,6 +197,86 @@ async function handleRecentFoodsCommand(ctx: Context): Promise<void> {
   await ctx.reply(formatRecentFoods(identity.language, recentFoods), {
     reply_markup: recentFoodsKeyboard(identity.language, recentFoods),
   });
+}
+
+async function handleLastMealEditCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const identity = await getFoodIdentity(ctx);
+  const mealEntryId = ctx.callbackQuery?.data?.match(lastMealEditPattern)?.[1];
+
+  if (!identity || !mealEntryId) {
+    return;
+  }
+
+  await setConversationState(identity.userId, ConversationStep.MEAL_EDIT, {
+    mealEntryId,
+  });
+  await ctx.reply(t(identity.language, "lastMeal.editPrompt"));
+}
+
+async function handleLastMealDeleteCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const identity = await getFoodIdentity(ctx);
+  const mealEntryId = ctx.callbackQuery?.data?.match(lastMealDeletePattern)?.[1];
+
+  if (!identity || !mealEntryId) {
+    return;
+  }
+
+  await setConversationState(identity.userId, ConversationStep.MEAL_DELETE, {
+    mealEntryId,
+  });
+  await ctx.reply(t(identity.language, "lastMeal.deleteConfirm"), {
+    reply_markup: lastMealDeleteConfirmKeyboard(identity.language, mealEntryId),
+  });
+}
+
+async function handleLastMealConfirmDeleteCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const identity = await getFoodIdentity(ctx);
+  const mealEntryId = ctx.callbackQuery?.data?.match(lastMealConfirmDeletePattern)?.[1];
+
+  if (!identity || !mealEntryId) {
+    return;
+  }
+
+  const state = await getConversationState(identity.userId);
+  const payload = readLatestMealPayload(state.payload);
+
+  if (state.step !== ConversationStep.MEAL_DELETE || payload?.mealEntryId !== mealEntryId) {
+    await ctx.reply(t(identity.language, "lastMeal.expired"));
+    return;
+  }
+
+  const claimed = await claimConversationStep(identity.userId, ConversationStep.MEAL_DELETE);
+
+  if (!claimed) {
+    await ctx.reply(t(identity.language, "lastMeal.expired"));
+    return;
+  }
+
+  const deleted = await deleteLatestMealEntry({
+    userId: identity.userId,
+    mealEntryId,
+  });
+
+  await ctx.reply(
+    deleted
+      ? t(identity.language, "lastMeal.deleted")
+      : t(identity.language, "lastMeal.expired"),
+  );
+}
+
+async function handleLastMealCancelCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const identity = await getFoodIdentity(ctx);
+
+  if (!identity) {
+    return;
+  }
+
+  await resetConversationState(identity.userId);
+  await ctx.reply(t(identity.language, "lastMeal.cancelled"));
 }
 
 async function handleFoodChoiceCallback(ctx: Context): Promise<void> {
@@ -255,6 +373,58 @@ async function handleFoodRelogCallback(ctx: Context): Promise<void> {
   );
 }
 
+async function handleMealEditText(
+  ctx: Context,
+  userId: string,
+  telegramUserId: bigint,
+  language: SupportedLanguage,
+  rawText: string,
+  payload: ConversationPayload | null,
+): Promise<void> {
+  const editPayload = readLatestMealPayload(payload);
+
+  if (!editPayload) {
+    await resetConversationState(userId);
+    await ctx.reply(t(language, "lastMeal.expired"));
+    return;
+  }
+
+  const parsedMeal = await parseDeterministicMealForUser(userId, rawText, language);
+
+  if (parsedMeal.status === "invalid") {
+    await ctx.reply(t(language, "lastMeal.editInvalid"));
+    return;
+  }
+
+  const claimed = await claimConversationStep(userId, ConversationStep.MEAL_EDIT);
+
+  if (!claimed) {
+    await ctx.reply(t(language, "lastMeal.expired"));
+    return;
+  }
+
+  const updated = await updateLatestMealEntry({
+    userId,
+    mealEntryId: editPayload.mealEntryId,
+    rawText,
+    meal: parsedMeal.meal,
+  });
+
+  if (!updated) {
+    await ctx.reply(t(language, "lastMeal.expired"));
+    return;
+  }
+
+  const dailySummary = await getDailyNutritionSummary(userId);
+  await ctx.reply(
+    [
+      t(language, "lastMeal.updated"),
+      "",
+      formatMealRecorded(language, parsedMeal.meal, dailySummary),
+    ].join("\n"),
+  );
+}
+
 async function processFoodLog(
   ctx: Context,
   userId: string,
@@ -285,6 +455,50 @@ async function processFoodLog(
     parsedItems: draft.items,
     selectedFoodIdsByIndex: {},
   });
+}
+
+async function parseDeterministicMealForUser(
+  userId: string,
+  rawText: string,
+  language: SupportedLanguage,
+): Promise<
+  | {
+      status: "ok";
+      meal: CalculatedMeal;
+    }
+  | {
+      status: "invalid";
+    }
+> {
+  const parsed = parseFoodLogMessage(rawText);
+
+  if (parsed.items.length === 0 || parsed.rejectedParts.length > 0) {
+    return { status: "invalid" };
+  }
+
+  const foods = await getActiveNutritionFoods(userId);
+  const calculatedItems = [];
+
+  for (const item of parsed.items) {
+    const match = matchFoodCandidate(item, foods);
+
+    if (match.status !== "matched") {
+      return { status: "invalid" };
+    }
+
+    calculatedItems.push(
+      calculateMealItem(
+        match.food,
+        item,
+        getFoodDisplayName(match.food, language),
+      ),
+    );
+  }
+
+  return {
+    status: "ok",
+    meal: calculateMeal(calculatedItems),
+  };
 }
 
 async function continueFoodLogWithSelection(
@@ -378,6 +592,43 @@ function foodOptionsKeyboard(
         .row(),
     new InlineKeyboard(),
   );
+}
+
+export function formatLatestMeal(
+  language: SupportedLanguage,
+  meal: LatestMealEntry,
+): string {
+  return [
+    t(language, "lastMeal.title"),
+    t(language, "lastMeal.summary", {
+      calories: Math.round(Number(meal.totalCalories)),
+      items: meal.items.length,
+    }),
+    ...meal.items.slice(0, 3).map((item) =>
+      t(language, "lastMeal.item", {
+        name: item.matchedName,
+        grams: Math.round(Number(item.grams)),
+      }),
+    ),
+  ].join("\n");
+}
+
+function lastMealKeyboard(language: SupportedLanguage, mealEntryId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(t(language, "lastLog.button.edit"), `lastmeal:edit:${mealEntryId}`)
+    .text(t(language, "lastLog.button.delete"), `lastmeal:delete:${mealEntryId}`)
+    .row()
+    .text(t(language, "lastLog.button.cancel"), lastMealCancelAction);
+}
+
+function lastMealDeleteConfirmKeyboard(
+  language: SupportedLanguage,
+  mealEntryId: string,
+): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(t(language, "lastLog.button.confirmDelete"), `lastmeal:confirm_delete:${mealEntryId}`)
+    .row()
+    .text(t(language, "lastLog.button.cancel"), lastMealCancelAction);
 }
 
 export function formatRecentFoods(
@@ -512,6 +763,18 @@ function readFoodEntryPayload(
     rawText: payload.rawText,
     parsedItems,
     selectedFoodIdsByIndex,
+  };
+}
+
+function readLatestMealPayload(
+  payload: ConversationPayload | null,
+): { mealEntryId: string } | null {
+  if (!payload || typeof payload.mealEntryId !== "string") {
+    return null;
+  }
+
+  return {
+    mealEntryId: payload.mealEntryId,
   };
 }
 
