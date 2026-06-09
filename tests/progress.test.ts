@@ -303,7 +303,7 @@ describe("progress conversation hardening", () => {
     assert.equal(createdCount, 1);
     assert.equal(replies.filter((reply) => reply.startsWith("Weight saved")).length, 1);
     assert.equal(
-      replies.filter((reply) => reply.startsWith("Weight entry expired")).length,
+      replies.filter((reply) => reply.startsWith("That weight entry expired")).length,
       1,
     );
   });
@@ -343,7 +343,7 @@ describe("progress conversation hardening", () => {
       1,
     );
     assert.equal(
-      replies.filter((reply) => reply.startsWith("Check-in step expired")).length,
+      replies.filter((reply) => reply.startsWith("That check-in step expired")).length,
       1,
     );
   });
