@@ -6,7 +6,7 @@ export type FoodLogParseResult = {
   rejectedParts: string[];
 };
 
-const gramsUnitPattern = "(?:g|gr|gram|grams|г|гр|грамм|грамма|граммов)";
+const gramsUnitPattern = "(?:g|gr|gram|grams|г|гр|грамм|грамма|граммов)\\.?"
 const leadingQuantityPattern = new RegExp(
   `^(\\d+(?:[.,]\\d+)?)\\s*${gramsUnitPattern}\\s+(.+)$`,
   "iu",
@@ -63,6 +63,24 @@ const servingRules = [
     gramsPerServing: 50,
   },
   {
+    terms: ["банан", "banana"],
+    normalizedLabel: "банан",
+    unit: "piece",
+    gramsPerServing: 120,
+  },
+  {
+    terms: ["яблок", "apple"],
+    normalizedLabel: "яблоко",
+    unit: "piece",
+    gramsPerServing: 150,
+  },
+  {
+    terms: ["кусок хлеб", "кусочка хлеб", "ломтик хлеб", "ломтика хлеб", "bread slice"],
+    normalizedLabel: "хлеб",
+    unit: "piece",
+    gramsPerServing: 35,
+  },
+  {
     terms: ["лаваш", "lavash"],
     normalizedLabel: "лаваш",
     unit: "piece",
@@ -91,6 +109,11 @@ const quickMealRules = [
     terms: ["протеиновый батончик", "протеиновый бар", "protein bar"],
     normalizedLabel: "протеиновый батончик",
     grams: 60,
+  },
+  {
+    terms: ["кофе с молоком", "coffee with milk"],
+    normalizedLabel: "кофе с молоком",
+    grams: 250,
   },
 ] as const;
 
@@ -141,7 +164,9 @@ function splitFoodLogParts(input: string): string[] {
 
   parts.push(current);
 
-  return parts.flatMap((part) => part.split(/\s+(?:and|и)\s+/iu));
+  return parts
+    .flatMap((part) => part.split(/\s*(?:[;\r\n]+|\+)\s*/u))
+    .flatMap((part) => part.split(/\s+(?:and|и)\s+/iu));
 }
 
 function isDigit(value: string): boolean {
