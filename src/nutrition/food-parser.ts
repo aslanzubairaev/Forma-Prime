@@ -19,16 +19,78 @@ const servingQuantityPattern = /^(\d+(?:[.,]\d+)?)\s+(.+)$/iu;
 
 const servingRules = [
   {
+    terms: ["жарен", "жарё", "fried egg", "fried eggs"],
+    normalizedLabel: "жареные яйца",
+    unit: "piece",
+    gramsPerServing: 50,
+  },
+  {
+    terms: ["варен", "варё", "boiled egg", "boiled eggs"],
+    normalizedLabel: "вареные яйца",
+    unit: "piece",
+    gramsPerServing: 50,
+  },
+  {
     terms: ["egg", "eggs", "яйцо", "яйца", "яиц", "яйцами"],
     normalizedLabel: "яйца",
     unit: "piece",
     gramsPerServing: 50,
   },
   {
-    terms: ["protein", "протеин", "протеина"],
+    terms: ["protein bar", "протеиновый батончик", "протеиновый бар"],
+    normalizedLabel: "протеиновый батончик",
+    unit: "serving",
+    gramsPerServing: 60,
+  },
+  {
+    terms: [
+      "protein",
+      "scoop protein",
+      "whey",
+      "протеин",
+      "протеина",
+      "порция протеина",
+      "порции протеина",
+    ],
     normalizedLabel: "протеин",
     unit: "serving",
     gramsPerServing: 30,
+  },
+  {
+    terms: ["батончик", "snack bar"],
+    normalizedLabel: "батончик",
+    unit: "serving",
+    gramsPerServing: 50,
+  },
+  {
+    terms: ["лаваш", "lavash"],
+    normalizedLabel: "лаваш",
+    unit: "piece",
+    gramsPerServing: 60,
+  },
+] as const;
+
+const quickMealRules = [
+  {
+    terms: ["протеиновый кофе", "кофе с протеином", "protein coffee"],
+    normalizedLabel: "протеиновый кофе",
+    grams: 330,
+  },
+  {
+    terms: [
+      "лаваш с курицей",
+      "домашняя шаурма",
+      "шаурма домашняя",
+      "chicken lavash wrap",
+      "chicken wrap",
+    ],
+    normalizedLabel: "лаваш с курицей",
+    grams: 250,
+  },
+  {
+    terms: ["протеиновый батончик", "протеиновый бар", "protein bar"],
+    normalizedLabel: "протеиновый батончик",
+    grams: 60,
   },
 ] as const;
 
@@ -87,6 +149,12 @@ function isDigit(value: string): boolean {
 }
 
 function parseFoodLogPart(part: string): ParsedFoodItemCandidate | null {
+  const quickMeal = buildQuickMealParsedItem(part);
+
+  if (quickMeal) {
+    return quickMeal;
+  }
+
   const leadingMatch = part.match(leadingQuantityPattern);
 
   if (leadingMatch) {
@@ -106,6 +174,31 @@ function parseFoodLogPart(part: string): ParsedFoodItemCandidate | null {
   }
 
   return null;
+}
+
+function buildQuickMealParsedItem(part: string): ParsedFoodItemCandidate | null {
+  const label = part.trim();
+
+  if (!label) {
+    return null;
+  }
+
+  const normalizedLabel = normalizeFoodText(label);
+  const rule = quickMealRules.find((candidate) =>
+    candidate.terms.some((term) => normalizedLabel === normalizeFoodText(term)),
+  );
+
+  if (!rule) {
+    return null;
+  }
+
+  return {
+    rawLabel: label,
+    normalizedLabel: rule.normalizedLabel,
+    quantity: 1,
+    unit: "serving",
+    grams: rule.grams,
+  };
 }
 
 function buildParsedItem(
