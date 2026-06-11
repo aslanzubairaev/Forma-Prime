@@ -351,6 +351,73 @@ describe("food parser", () => {
       assert.equal(result.items[0]?.unit, testCase.unit, testCase.input);
     }
   });
+
+  it("parses conversational protein serving word-order variants", () => {
+    const cases = [
+      ["2 порции протеина", 60],
+      ["протеин 2 порции", 60],
+      ["протеина 2 порции", 60],
+      ["протеина две порции", 60],
+      ["протеин две ложки", 60],
+      ["протеина две ложки", 60],
+      ["сегодня пил протеина три большие ложки", 90],
+    ] as const;
+
+    for (const [input, grams] of cases) {
+      const result = parseFoodLogMessage(input);
+
+      assert.equal(result.rejectedParts.length, 0, input);
+      assert.equal(result.items.length, 1, input);
+      assert.equal(result.items[0]?.normalizedLabel, "протеин", input);
+      assert.equal(result.items[0]?.unit, "serving", input);
+      assert.equal(result.items[0]?.grams, grams, input);
+    }
+  });
+
+  it("parses conversational protein coffee and coffee variants", () => {
+    const cases = [
+      ["протеиновый кофе", "протеиновый кофе", 330],
+      ["кофе протеиновый", "протеиновый кофе", 330],
+      ["кофе протеиновое", "протеиновый кофе", 330],
+      ["кофе с протеином", "протеиновый кофе", 330],
+      ["сегодня пил протеиновый кофе", "протеиновый кофе", 330],
+      ["кофе протеиновый 19 гр белка", "протеиновый кофе", 330],
+      ["сегодня пил протеиновый кофе, 19 грамм белка", "протеиновый кофе", 330],
+      ["кофе", "кофе", 200],
+      ["кофе с молоком", "кофе с молоком", 250],
+    ] as const;
+
+    for (const [input, normalizedLabel, grams] of cases) {
+      const result = parseFoodLogMessage(input);
+
+      assert.equal(result.rejectedParts.length, 0, input);
+      assert.equal(result.items.length, 1, input);
+      assert.equal(result.items[0]?.normalizedLabel, normalizedLabel, input);
+      assert.equal(result.items[0]?.unit, "serving", input);
+      assert.equal(result.items[0]?.grams, grams, input);
+    }
+  });
+
+  it("parses conversational fried egg count variants", () => {
+    const cases = [
+      "5 жареных яиц",
+      "покушал 5 жареных яиц",
+      "жареных 5 яиц",
+      "жареные яйца 5 штук",
+      "сегодня ел 5 жареных яиц",
+    ] as const;
+
+    for (const input of cases) {
+      const result = parseFoodLogMessage(input);
+
+      assert.equal(result.rejectedParts.length, 0, input);
+      assert.equal(result.items.length, 1, input);
+      assert.equal(result.items[0]?.normalizedLabel, "жареные яйца", input);
+      assert.equal(result.items[0]?.unit, "piece", input);
+      assert.equal(result.items[0]?.quantity, 5, input);
+      assert.equal(result.items[0]?.grams, 250, input);
+    }
+  });
 });
 
 describe("food matcher", () => {
@@ -462,6 +529,32 @@ describe("food matcher", () => {
       ["30 г сметаны", "sour-cream"],
       ["кофе с молоком", "coffee-with-milk"],
       ["200 г курицы", "chicken-breast-cooked-skinless"],
+    ] as const;
+
+    for (const [input, slug] of cases) {
+      const parsed = parseFoodLogMessage(input);
+      const item = parsed.items[0];
+
+      assert.ok(item, input);
+      const result = matchFoodCandidate(item, seededFoods);
+
+      assert.equal(result.status, "matched", input);
+      assert.equal(result.status === "matched" ? result.food.slug : "", slug);
+    }
+  });
+
+  it("matches conversational protein, coffee, and egg inputs deterministically", () => {
+    const seededFoods = starterCatalogRecords();
+    const cases = [
+      ["протеина две порции", "whey-protein-powder"],
+      ["сегодня пил протеина три большие ложки", "whey-protein-powder"],
+      ["кофе протеиновый 19 гр белка", "protein-coffee"],
+      ["сегодня пил протеиновый кофе, 19 грамм белка", "protein-coffee"],
+      ["кофе", "coffee"],
+      ["кофе с молоком", "coffee-with-milk"],
+      ["покушал 5 жареных яиц", "egg-fried"],
+      ["жареные яйца 5 штук", "egg-fried"],
+      ["250 г грудка куриная вареная", "chicken-breast-cooked-skinless"],
     ] as const;
 
     for (const [input, slug] of cases) {
@@ -628,6 +721,7 @@ describe("essential food catalog seed", () => {
       "omelet",
       "sour-cream",
       "coffee-with-milk",
+      "coffee",
     ];
 
     assert.ok(essentialSeedFoods.length >= 40);

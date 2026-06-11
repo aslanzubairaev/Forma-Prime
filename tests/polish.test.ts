@@ -88,6 +88,13 @@ describe("fallback behavior polish", () => {
     assert.match(russian, /Не найдено: непонятный соус/);
     assert.match(russian, /\/customfood/);
   });
+
+  it("does not make parse failure guidance grams-only", () => {
+    assert.match(t("en", "food.parseFailed"), /simpler food name/);
+    assert.match(t("en", "food.parseFailed"), /2 servings of protein/);
+    assert.match(t("ru", "food.parseFailed"), /проще/);
+    assert.match(t("ru", "food.parseFailed"), /2 порции протеина/);
+  });
 });
 
 describe("environment validation", () => {
