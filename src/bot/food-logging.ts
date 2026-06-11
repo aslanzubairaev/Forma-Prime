@@ -592,8 +592,9 @@ async function continueFoodLogWithSelection(
     unmatchedItems.length > 0
       ? [
           recordedMessage,
-          t(language, "food.unmatchedItems", {
-            labels: formatUnmatchedLabels(unmatchedItems),
+          t(language, "food.partialUnmatched", {
+            matched: formatMatchedLabels(meal),
+            unmatched: formatUnmatchedLabels(unmatchedItems),
           }),
         ].join("\n")
       : recordedMessage,
@@ -744,6 +745,10 @@ function roundForDisplay(value: number, fractionDigits: number): string {
 
 function formatUnmatchedLabels(items: ParsedFoodItemCandidate[]): string {
   return items.map((item) => item.rawLabel).join(", ");
+}
+
+function formatMatchedLabels(meal: CalculatedMeal): string {
+  return meal.items.map((item) => item.matchedName).join(", ");
 }
 
 function readFoodEntryPayload(
