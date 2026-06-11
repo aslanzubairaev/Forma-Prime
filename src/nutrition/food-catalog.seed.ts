@@ -771,6 +771,20 @@ export const essentialSeedFoods: SeedFood[] = [
     },
   },
   {
+    slug: "coffee",
+    nameRu: "Кофе",
+    nameEn: "Coffee",
+    category: "basic",
+    caloriesPer100g: 2,
+    proteinPer100g: 0.1,
+    fatPer100g: 0,
+    carbsPer100g: 0,
+    aliases: {
+      en: ["coffee", "black coffee"],
+      ru: ["кофе", "черный кофе", "чёрный кофе"],
+    },
+  },
+  {
     slug: "coffee-with-milk",
     nameRu: "Кофе с молоком",
     nameEn: "Coffee with milk",
