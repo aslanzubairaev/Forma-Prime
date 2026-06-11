@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { matchFoodCandidate } from "../src/nutrition/food-matcher.js";
+import { resolveParsedFoodItems } from "../src/nutrition/food-resolution.js";
 import {
   buildNutritionFoodAliasCreateData,
   buildNutritionFoodUpsertArgs,
@@ -136,7 +137,7 @@ describe("food parser", () => {
     assert.equal(result.rejectedParts.length, 0);
     assert.equal(result.items.length, 1);
     assert.equal(result.items[0]?.rawLabel, "варенных яйца");
-    assert.equal(result.items[0]?.normalizedLabel, "яйца");
+    assert.equal(result.items[0]?.normalizedLabel, "вареные яйца");
     assert.equal(result.items[0]?.unit, "piece");
     assert.equal(result.items[0]?.quantity, 4);
     assert.equal(result.items[0]?.grams, 200);
@@ -203,11 +204,100 @@ describe("food parser", () => {
     assert.equal(result.items.length, 3);
     assert.equal(result.items[0]?.rawLabel, "жареной грудки");
     assert.equal(result.items[0]?.grams, 260);
-    assert.equal(result.items[1]?.normalizedLabel, "яйца");
+    assert.equal(result.items[1]?.normalizedLabel, "вареные яйца");
     assert.equal(result.items[1]?.grams, 200);
     assert.equal(result.items[2]?.normalizedLabel, "протеин");
     assert.equal(result.items[2]?.unit, "serving");
     assert.equal(result.items[2]?.grams, 90);
+  });
+
+  it("parses core Russian live food logging inputs", () => {
+    const cases = [
+      {
+        input: "250 г куриной грудки",
+        label: "куриной грудки",
+        grams: 250,
+        unit: "g",
+      },
+      {
+        input: "250гр куриной грудки",
+        label: "куриной грудки",
+        grams: 250,
+        unit: "g",
+      },
+      {
+        input: "200 г варёного риса",
+        label: "варёного риса",
+        grams: 200,
+        unit: "g",
+      },
+      {
+        input: "150 г гречки",
+        label: "гречки",
+        grams: 150,
+        unit: "g",
+      },
+      {
+        input: "180 г макарон",
+        label: "макарон",
+        grams: 180,
+        unit: "g",
+      },
+      {
+        input: "4 варёных яйца",
+        label: "варёных яйца",
+        grams: 200,
+        unit: "piece",
+      },
+      {
+        input: "3 жареных яйца",
+        label: "жареных яйца",
+        grams: 150,
+        unit: "piece",
+      },
+      {
+        input: "2 порции протеина",
+        label: "порции протеина",
+        grams: 60,
+        unit: "serving",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const result = parseFoodLogMessage(testCase.input);
+
+      assert.equal(result.rejectedParts.length, 0, testCase.input);
+      assert.equal(result.items.length, 1, testCase.input);
+      assert.equal(result.items[0]?.rawLabel, testCase.label, testCase.input);
+      assert.equal(result.items[0]?.grams, testCase.grams, testCase.input);
+      assert.equal(result.items[0]?.unit, testCase.unit, testCase.input);
+    }
+  });
+
+  it("parses high-value quick meal phrases without explicit grams", () => {
+    const cases = [
+      {
+        input: "протеиновый кофе",
+        label: "протеиновый кофе",
+        grams: 330,
+      },
+      {
+        input: "лаваш с курицей",
+        label: "лаваш с курицей",
+        grams: 250,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const result = parseFoodLogMessage(testCase.input);
+
+      assert.equal(result.rejectedParts.length, 0, testCase.input);
+      assert.equal(result.items.length, 1, testCase.input);
+      assert.equal(result.items[0]?.rawLabel, testCase.label, testCase.input);
+      assert.equal(result.items[0]?.unit, "serving", testCase.input);
+      assert.equal(result.items[0]?.quantity, 1, testCase.input);
+      assert.equal(result.items[0]?.grams, testCase.grams, testCase.input);
+    }
   });
 });
 
@@ -260,6 +350,37 @@ describe("food matcher", () => {
       "whey-protein-powder",
     );
   });
+
+  it("matches core starter catalog Russian aliases", () => {
+    const seededFoods = starterCatalogRecords();
+    const cases = [
+      ["куриной грудки", "chicken-breast-cooked-skinless"],
+      ["варёного риса", "white-rice-cooked"],
+      ["гречки", "buckwheat-cooked"],
+      ["макарон", "pasta-cooked"],
+      ["варёных яйца", "egg-boiled"],
+      ["жареных яйца", "egg-fried"],
+      ["порции протеина", "whey-protein-powder"],
+      ["протеиновый кофе", "protein-coffee"],
+      ["лаваш с курицей", "chicken-lavash-wrap"],
+    ] as const;
+
+    for (const [label, slug] of cases) {
+      const result = matchFoodCandidate(candidateFor(label, 100), seededFoods);
+
+      assert.equal(result.status, "matched", label);
+      assert.equal(result.status === "matched" ? result.food.slug : "", slug);
+    }
+  });
+
+  it("returns not_found without inventing nutrition for unknown foods", () => {
+    const result = matchFoodCandidate(
+      candidateFor("марсианская каша", 100),
+      starterCatalogRecords(),
+    );
+
+    assert.equal(result.status, "not_found");
+  });
 });
 
 describe("nutrition calculator", () => {
@@ -293,6 +414,40 @@ describe("nutrition calculator", () => {
   });
 });
 
+describe("food item resolution", () => {
+  it("keeps matched nutrition while reporting unmatched items", () => {
+    const result = resolveParsedFoodItems(
+      [candidateFor("куриной грудки", 250), candidateFor("марсианская каша", 100)],
+      starterCatalogRecords(),
+    );
+
+    assert.equal(result.status, "partial");
+    assert.equal(result.status === "partial" ? result.meal.items.length : 0, 1);
+    assert.equal(result.status === "partial" ? result.unmatchedItems.length : 0, 1);
+    assert.equal(
+      result.status === "partial" ? result.unmatchedItems[0]?.rawLabel : "",
+      "марсианская каша",
+    );
+    assert.equal(
+      result.status === "partial" ? result.meal.items[0]?.food.slug : "",
+      "chicken-breast-cooked-skinless",
+    );
+  });
+
+  it("returns not_found with no meal when every item is unmatched", () => {
+    const result = resolveParsedFoodItems(
+      [candidateFor("марсианская каша", 100)],
+      starterCatalogRecords(),
+    );
+
+    assert.equal(result.status, "not_found");
+    assert.equal(
+      result.status === "not_found" ? result.unmatchedItems[0]?.rawLabel : "",
+      "марсианская каша",
+    );
+  });
+});
+
 describe("essential food catalog seed", () => {
   it("includes live food logging examples as seeded aliases", () => {
     const chicken = essentialSeedFoods.find(
@@ -311,6 +466,75 @@ describe("essential food catalog seed", () => {
     assert.ok(rice.aliases.ru.includes("риса"));
     assert.ok(essentialSeedFoods.some((food) => food.slug === "egg-whole"));
     assert.ok(essentialSeedFoods.some((food) => food.slug === "whey-protein-powder"));
+  });
+
+  it("contains a practical starter catalog v1", () => {
+    const requiredSlugs = [
+      "chicken-breast-cooked-skinless",
+      "chicken-breast-fried",
+      "turkey-cooked",
+      "beef-lean-cooked",
+      "tuna-canned-in-water",
+      "egg-boiled",
+      "egg-fried",
+      "cottage-cheese",
+      "greek-yogurt",
+      "whey-protein-powder",
+      "white-rice-cooked",
+      "buckwheat-cooked",
+      "pasta-cooked",
+      "oats-dry",
+      "potato-boiled",
+      "lavash",
+      "bread",
+      "banana",
+      "apple",
+      "cucumber",
+      "tomato",
+      "lettuce",
+      "greens",
+      "olive-oil",
+      "peanut-butter",
+      "ketchup-zero",
+      "hot-sauce",
+      "protein-coffee",
+      "protein-bar",
+      "chocolate",
+      "cookie-sweet-snack",
+      "chicken-lavash-wrap",
+    ];
+
+    assert.ok(essentialSeedFoods.length >= 40);
+
+    for (const slug of requiredSlugs) {
+      assert.ok(
+        essentialSeedFoods.some((food) => food.slug === slug),
+        `missing ${slug}`,
+      );
+    }
+  });
+
+  it("deduplicates aliases within a single bootstrap run", async () => {
+    const createdAliases: string[] = [];
+
+    await ensureEssentialNutritionFoodsSeeded({
+      nutritionFood: {
+        upsert: async (args: any) => ({
+          id: args.where.slug,
+        }),
+      } as any,
+      nutritionFoodAlias: {
+        findMany: async () => [],
+        create: async (args: any) => {
+          createdAliases.push(
+            `${args.data.food.connect.id}:${args.data.languageCode}:${args.data.normalizedAlias}`,
+          );
+          return {};
+        },
+      } as any,
+    });
+
+    assert.equal(createdAliases.length, new Set(createdAliases).size);
   });
 
   it("builds idempotent upsert data for startup catalog repair", () => {
@@ -436,4 +660,10 @@ function seedToNutritionFoodRecord(
       })),
     ),
   };
+}
+
+function starterCatalogRecords(): NutritionFoodRecord[] {
+  return essentialSeedFoods.map((seed) =>
+    seedToNutritionFoodRecord(`food_${seed.slug}`, seed),
+  );
 }
