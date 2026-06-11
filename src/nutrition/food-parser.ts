@@ -15,7 +15,49 @@ const trailingQuantityPattern = new RegExp(
   `^(.+?)\\s+(\\d+(?:[.,]\\d+)?)\\s*${gramsUnitPattern}$`,
   "iu",
 );
+const embeddedQuantityPattern = new RegExp(
+  `^(.+?)\\s+(\\d+(?:[.,]\\d+)?)\\s*${gramsUnitPattern}\\s+(.+)$`,
+  "iu",
+);
 const servingQuantityPattern = /^(\d+(?:[.,]\d+)?)\s+(.+)$/iu;
+const nutritionHintPattern = new RegExp(
+  `^\\d+(?:[.,]\\d+)?\\s*${gramsUnitPattern}\\s+(?:белка|белок|protein)$`,
+  "iu",
+);
+
+const conversationalWrapperWords = new Set([
+  "сегодня",
+  "ел",
+  "ела",
+  "съел",
+  "съела",
+  "пил",
+  "пила",
+  "выпил",
+  "выпила",
+  "покушал",
+  "покушала",
+  "съелa",
+  "кушал",
+  "кушала",
+  "я",
+]);
+
+const numberWords: Record<string, number> = {
+  один: 1,
+  одна: 1,
+  одно: 1,
+  две: 2,
+  два: 2,
+  три: 3,
+  четыре: 4,
+  пять: 5,
+  шесть: 6,
+  семь: 7,
+  восемь: 8,
+  девять: 9,
+  десять: 10,
+};
 
 const servingRules = [
   {
@@ -115,6 +157,11 @@ const quickMealRules = [
     normalizedLabel: "кофе с молоком",
     grams: 250,
   },
+  {
+    terms: ["кофе", "coffee"],
+    normalizedLabel: "кофе",
+    grams: 200,
+  },
 ] as const;
 
 export function parseFoodLogMessage(input: string): FoodLogParseResult {
@@ -126,6 +173,15 @@ export function parseFoodLogMessage(input: string): FoodLogParseResult {
   const rejectedParts: string[] = [];
 
   for (const part of parts) {
+    if (isNutritionHintPart(part)) {
+      if (items.length > 0) {
+        continue;
+      }
+
+      rejectedParts.push(part);
+      continue;
+    }
+
     const parsed = parseFoodLogPart(part);
 
     if (parsed) {
@@ -174,6 +230,12 @@ function isDigit(value: string): boolean {
 }
 
 function parseFoodLogPart(part: string): ParsedFoodItemCandidate | null {
+  const conversationalServing = buildConversationalServingParsedItem(part);
+
+  if (conversationalServing) {
+    return conversationalServing;
+  }
+
   const quickMeal = buildQuickMealParsedItem(part);
 
   if (quickMeal) {
@@ -192,10 +254,81 @@ function parseFoodLogPart(part: string): ParsedFoodItemCandidate | null {
     return buildParsedItem(trailingMatch[1], trailingMatch[2]);
   }
 
+  const embeddedMatch = part.match(embeddedQuantityPattern);
+
+  if (embeddedMatch) {
+    return buildParsedItem(
+      stripConversationalWrappers(
+        [embeddedMatch[1], embeddedMatch[3]].filter(Boolean).join(" "),
+      ),
+      embeddedMatch[2],
+    );
+  }
+
   const servingMatch = part.match(servingQuantityPattern);
 
   if (servingMatch) {
     return buildServingParsedItem(servingMatch[2], servingMatch[1]);
+  }
+
+  return null;
+}
+
+function buildConversationalServingParsedItem(
+  part: string,
+): ParsedFoodItemCandidate | null {
+  const label = part.trim();
+
+  if (!label) {
+    return null;
+  }
+
+  const normalizedLabel = normalizeFoodText(label);
+  const strippedLabel = stripConversationalWrappers(normalizedLabel);
+
+  if (isProteinCoffeeText(strippedLabel)) {
+    return buildServingItem(label, "протеиновый кофе", 1, 330);
+  }
+
+  if (isCoffeeWithMilkText(strippedLabel)) {
+    return buildServingItem(label, "кофе с молоком", 1, 250);
+  }
+
+  if (isPlainCoffeeText(strippedLabel)) {
+    return buildServingItem(label, "кофе", 1, 200);
+  }
+
+  if (isProteinText(strippedLabel)) {
+    const quantity = extractQuantityNearServingUnit(strippedLabel);
+
+    if (quantity) {
+      return buildServingItem(
+        stripQuantityWords(strippedLabel),
+        "протеин",
+        quantity,
+        quantity * 30,
+      );
+    }
+  }
+
+  if (isEggText(strippedLabel)) {
+    const quantity = extractAnyQuantity(strippedLabel);
+
+    if (quantity) {
+      const normalizedEggLabel = isFriedEggText(strippedLabel)
+        ? "жареные яйца"
+        : isBoiledEggText(strippedLabel)
+          ? "вареные яйца"
+          : "яйца";
+
+      return {
+        rawLabel: stripQuantityWords(strippedLabel),
+        normalizedLabel: normalizedEggLabel,
+        quantity,
+        unit: "piece",
+        grams: quantity * 50,
+      };
+    }
   }
 
   return null;
@@ -210,7 +343,10 @@ function buildQuickMealParsedItem(part: string): ParsedFoodItemCandidate | null 
 
   const normalizedLabel = normalizeFoodText(label);
   const rule = quickMealRules.find((candidate) =>
-    candidate.terms.some((term) => normalizedLabel === normalizeFoodText(term)),
+    candidate.terms.some(
+      (term) =>
+        stripConversationalWrappers(normalizedLabel) === normalizeFoodText(term),
+    ),
   );
 
   if (!rule) {
@@ -223,6 +359,21 @@ function buildQuickMealParsedItem(part: string): ParsedFoodItemCandidate | null 
     quantity: 1,
     unit: "serving",
     grams: rule.grams,
+  };
+}
+
+function buildServingItem(
+  rawLabel: string,
+  normalizedLabel: string,
+  quantity: number,
+  grams: number,
+): ParsedFoodItemCandidate {
+  return {
+    rawLabel,
+    normalizedLabel,
+    quantity,
+    unit: "serving",
+    grams,
   };
 }
 
@@ -241,14 +392,15 @@ function buildParsedItem(
   }
 
   const label = rawLabel.trim();
+  const strippedLabel = stripConversationalWrappers(label);
 
-  if (!label) {
+  if (!strippedLabel) {
     return null;
   }
 
   return {
-    rawLabel: label,
-    normalizedLabel: normalizeFoodText(label),
+    rawLabel: strippedLabel,
+    normalizedLabel: normalizeFoodText(strippedLabel),
     quantity,
     unit: "g",
     grams: quantity,
@@ -291,4 +443,103 @@ function buildServingParsedItem(
     unit: rule.unit,
     grams: quantity * rule.gramsPerServing,
   };
+}
+
+function stripConversationalWrappers(value: string): string {
+  return normalizeFoodText(value)
+    .split(" ")
+    .filter((token) => !conversationalWrapperWords.has(token))
+    .join(" ")
+    .trim();
+}
+
+function isNutritionHintPart(part: string): boolean {
+  return nutritionHintPattern.test(normalizeFoodText(part));
+}
+
+function isProteinText(value: string): boolean {
+  return value.includes("протеин") || /\b(?:protein|whey)\b/iu.test(value);
+}
+
+function isProteinCoffeeText(value: string): boolean {
+  return hasToken(value, "кофе") && isProteinText(value);
+}
+
+function isCoffeeWithMilkText(value: string): boolean {
+  return hasToken(value, "кофе") && value.includes("молок");
+}
+
+function isPlainCoffeeText(value: string): boolean {
+  return hasToken(value, "кофе") || /\bcoffee\b/iu.test(value);
+}
+
+function isEggText(value: string): boolean {
+  return /(?:^|\s)я(?:й|и)ц/iu.test(value) || /\beggs?\b/iu.test(value);
+}
+
+function isFriedEggText(value: string): boolean {
+  return value.includes("жарен") || value.includes("жарё") || value.includes("fried");
+}
+
+function isBoiledEggText(value: string): boolean {
+  return value.includes("варен") || value.includes("варё") || value.includes("boiled");
+}
+
+function hasToken(value: string, token: string): boolean {
+  return value.split(" ").includes(token);
+}
+
+function extractQuantityNearServingUnit(value: string): number | null {
+  const tokens = value.split(" ");
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const quantity = parseQuantityToken(tokens[index] ?? "");
+
+    if (!quantity) {
+      continue;
+    }
+
+    const nearbyTokens = tokens.slice(index + 1, index + 4).join(" ");
+
+    if (/(?:порци|ложк|scoop|serving)/iu.test(nearbyTokens)) {
+      return quantity;
+    }
+  }
+
+  return null;
+}
+
+function extractAnyQuantity(value: string): number | null {
+  for (const token of value.split(" ")) {
+    const quantity = parseQuantityToken(token);
+
+    if (quantity) {
+      return quantity;
+    }
+  }
+
+  return null;
+}
+
+function parseQuantityToken(value: string): number | null {
+  const normalizedValue = normalizeFoodText(value);
+
+  if (/^\d+(?:[.,]\d+)?$/.test(normalizedValue)) {
+    const quantity = Number(normalizedValue.replace(",", "."));
+    return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+  }
+
+  return numberWords[normalizedValue] ?? null;
+}
+
+function stripQuantityWords(value: string): string {
+  return value
+    .split(" ")
+    .filter(
+      (token) =>
+        !parseQuantityToken(token) &&
+        !/^(?:шт|штук|штуки|штука)$/iu.test(token),
+    )
+    .join(" ")
+    .trim();
 }
