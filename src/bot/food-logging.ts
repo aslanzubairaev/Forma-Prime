@@ -513,6 +513,7 @@ async function continueFoodLogWithSelection(
 ): Promise<void> {
   const foods = await getActiveNutritionFoods(userId);
   const calculatedItems = [];
+  const unmatchedItems: ParsedFoodItemCandidate[] = [];
 
   for (const [index, item] of payload.parsedItems.entries()) {
     const selectedFoodId = payload.selectedFoodIdsByIndex[String(index)];
@@ -530,9 +531,8 @@ async function continueFoodLogWithSelection(
     const match = matchFoodCandidate(item, foods);
 
     if (match.status === "not_found") {
-      await resetConversationState(userId);
-      await ctx.reply(t(language, "food.notFound", { label: item.rawLabel }));
-      return;
+      unmatchedItems.push(item);
+      continue;
     }
 
     if (match.status === "ambiguous") {
@@ -556,6 +556,16 @@ async function continueFoodLogWithSelection(
     );
   }
 
+  if (calculatedItems.length === 0) {
+    await resetConversationState(userId);
+    await ctx.reply(
+      t(language, "food.notFound", {
+        label: formatUnmatchedLabels(unmatchedItems),
+      }),
+    );
+    return;
+  }
+
   const meal = calculateMeal(calculatedItems);
 
   if (options.requireFoodEntryClaim) {
@@ -576,7 +586,18 @@ async function continueFoodLogWithSelection(
   await resetConversationState(userId);
 
   const dailySummary = await getDailyNutritionSummary(userId);
-  await ctx.reply(formatMealRecorded(language, meal, dailySummary));
+  const recordedMessage = formatMealRecorded(language, meal, dailySummary);
+
+  await ctx.reply(
+    unmatchedItems.length > 0
+      ? [
+          recordedMessage,
+          t(language, "food.unmatchedItems", {
+            labels: formatUnmatchedLabels(unmatchedItems),
+          }),
+        ].join("\n")
+      : recordedMessage,
+  );
 }
 
 function foodOptionsKeyboard(
@@ -721,6 +742,10 @@ function roundForDisplay(value: number, fractionDigits: number): string {
   return value.toFixed(fractionDigits);
 }
 
+function formatUnmatchedLabels(items: ParsedFoodItemCandidate[]): string {
+  return items.map((item) => item.rawLabel).join(", ");
+}
+
 function readFoodEntryPayload(
   payload: ConversationPayload | null,
 ): FoodEntryPayload | null {
@@ -751,7 +776,7 @@ function readFoodEntryPayload(
       typeof item.quantity === "number" &&
       Number.isFinite(item.quantity) &&
       item.quantity > 0 &&
-      item.unit === "g" &&
+      ["g", "piece", "serving"].includes(item.unit) &&
       typeof item.grams === "number" &&
       Number.isFinite(item.grams) &&
       item.grams > 0,

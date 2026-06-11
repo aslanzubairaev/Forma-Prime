@@ -1,10 +1,6 @@
-import { matchFoodCandidate } from "./food-matcher.js";
 import { parseFoodLogMessage } from "./food-parser.js";
 import { getActiveNutritionFoods } from "./food.repository.js";
-import {
-  calculateMeal,
-  calculateMealItem,
-} from "./nutrition-calculator.js";
+import { resolveParsedFoodItems } from "./food-resolution.js";
 import type {
   CalculatedMeal,
   FoodMatchResult,
@@ -23,7 +19,13 @@ export type FoodLogResolution =
     }
   | {
       status: "not_found";
-      item: ParsedFoodItemCandidate;
+      unmatchedItems: ParsedFoodItemCandidate[];
+    }
+  | {
+      status: "partial";
+      parsedItems: ParsedFoodItemCandidate[];
+      meal: CalculatedMeal;
+      unmatchedItems: ParsedFoodItemCandidate[];
     }
   | {
       status: "ambiguous";
@@ -44,32 +46,31 @@ export async function resolveFoodLogMessage(
   }
 
   const foods = await getActiveNutritionFoods();
-  const calculatedItems = [];
+  const resolved = resolveParsedFoodItems(parsed.items, foods);
 
-  for (const item of parsed.items) {
-    const match = matchFoodCandidate(item, foods);
+  if (resolved.status === "not_found") {
+    return {
+      status: "not_found",
+      unmatchedItems: resolved.unmatchedItems,
+    };
+  }
 
-    if (match.status === "not_found") {
-      return {
-        status: "not_found",
-        item,
-      };
-    }
+  if (resolved.status === "partial") {
+    return {
+      status: "partial",
+      parsedItems: parsed.items,
+      meal: resolved.meal,
+      unmatchedItems: resolved.unmatchedItems,
+    };
+  }
 
-    if (match.status === "ambiguous") {
-      return {
-        status: "ambiguous",
-        item,
-        options: match,
-      };
-    }
-
-    calculatedItems.push(calculateMealItem(match.food, item, match.matchedName));
+  if (resolved.status === "ambiguous") {
+    return resolved;
   }
 
   return {
     status: "matched",
     parsedItems: parsed.items,
-    meal: calculateMeal(calculatedItems),
+    meal: resolved.meal,
   };
 }
