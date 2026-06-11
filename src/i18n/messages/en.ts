@@ -35,7 +35,7 @@ export const en = {
   "help.menuHint": "Use /start anytime to return to the menu.",
 
   "food.command.help": "Log exact amounts in grams, for example: 200 g chicken breast, 250 g cooked rice.",
-  "food.parseFailed": "I could not read this food log. Use grams, for example: 200 g chicken breast.",
+  "food.parseFailed": "I could not read this food log. Try a simpler food name, for example: 200 g chicken breast, 2 servings of protein, or coffee with milk.",
   "food.notFound": "I could not find \"{label}\" in the food catalog. Try a simpler food name or save it with /customfood.",
   "food.unmatchedItems": "Not found: {labels}. I logged the matched items. Try a simpler name or save it with /customfood.",
   "food.partialUnmatched": "Understood and logged: {matched}.\nNot found: {unmatched}.\nNext: try a simpler food name or save it with /customfood.",
