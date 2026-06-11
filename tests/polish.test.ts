@@ -70,6 +70,24 @@ describe("fallback behavior polish", () => {
     assert.match(text, /\/help/);
     assert.match(text, /\/start/);
   });
+
+  it("separates matched, unmatched, and next action in partial food fallback", () => {
+    const english = t("en", "food.partialUnmatched", {
+      matched: "White rice",
+      unmatched: "unknown sauce",
+    });
+    const russian = t("ru", "food.partialUnmatched", {
+      matched: "Рис белый",
+      unmatched: "непонятный соус",
+    });
+
+    assert.match(english, /Understood and logged: White rice/);
+    assert.match(english, /Not found: unknown sauce/);
+    assert.match(english, /\/customfood/);
+    assert.match(russian, /Понял и записал: Рис белый/);
+    assert.match(russian, /Не найдено: непонятный соус/);
+    assert.match(russian, /\/customfood/);
+  });
 });
 
 describe("environment validation", () => {

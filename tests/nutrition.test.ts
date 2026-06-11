@@ -299,6 +299,58 @@ describe("food parser", () => {
       assert.equal(result.items[0]?.grams, testCase.grams, testCase.input);
     }
   });
+
+  it("parses live smoke punctuation, separator, and count variants", () => {
+    const separated = parseFoodLogMessage(
+      "250 гр. куриной грудки; 200 г риса\n1 банан + 2 кусочка хлеба",
+    );
+
+    assert.equal(separated.rejectedParts.length, 0);
+    assert.equal(separated.items.length, 4);
+    assert.equal(separated.items[0]?.rawLabel, "куриной грудки");
+    assert.equal(separated.items[0]?.grams, 250);
+    assert.equal(separated.items[1]?.rawLabel, "риса");
+    assert.equal(separated.items[1]?.grams, 200);
+    assert.equal(separated.items[2]?.normalizedLabel, "банан");
+    assert.equal(separated.items[2]?.unit, "piece");
+    assert.equal(separated.items[2]?.grams, 120);
+    assert.equal(separated.items[3]?.normalizedLabel, "хлеб");
+    assert.equal(separated.items[3]?.unit, "piece");
+    assert.equal(separated.items[3]?.grams, 70);
+  });
+
+  it("parses additional common live quick and count inputs", () => {
+    const cases = [
+      {
+        input: "2 яблока",
+        label: "яблоко",
+        grams: 300,
+        unit: "piece",
+      },
+      {
+        input: "кофе с молоком",
+        label: "кофе с молоком",
+        grams: 250,
+        unit: "serving",
+      },
+      {
+        input: "1 кусок хлеба",
+        label: "хлеб",
+        grams: 35,
+        unit: "piece",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const result = parseFoodLogMessage(testCase.input);
+
+      assert.equal(result.rejectedParts.length, 0, testCase.input);
+      assert.equal(result.items.length, 1, testCase.input);
+      assert.equal(result.items[0]?.normalizedLabel, testCase.label, testCase.input);
+      assert.equal(result.items[0]?.grams, testCase.grams, testCase.input);
+      assert.equal(result.items[0]?.unit, testCase.unit, testCase.input);
+    }
+  });
 });
 
 describe("food matcher", () => {
@@ -400,6 +452,30 @@ describe("food matcher", () => {
     }
   });
 
+  it("matches additional live smoke food aliases", () => {
+    const seededFoods = starterCatalogRecords();
+    const cases = [
+      ["200 г овсяной каши", "oatmeal-cooked"],
+      ["250 г йогурта", "plain-yogurt"],
+      ["180 г сырников", "syrniki"],
+      ["150 г омлета", "omelet"],
+      ["30 г сметаны", "sour-cream"],
+      ["кофе с молоком", "coffee-with-milk"],
+      ["200 г курицы", "chicken-breast-cooked-skinless"],
+    ] as const;
+
+    for (const [input, slug] of cases) {
+      const parsed = parseFoodLogMessage(input);
+      const item = parsed.items[0];
+
+      assert.ok(item, input);
+      const result = matchFoodCandidate(item, seededFoods);
+
+      assert.equal(result.status, "matched", input);
+      assert.equal(result.status === "matched" ? result.food.slug : "", slug);
+    }
+  });
+
   it("returns not_found without inventing nutrition for unknown foods", () => {
     const result = matchFoodCandidate(
       candidateFor("марсианская каша", 100),
@@ -473,6 +549,23 @@ describe("food item resolution", () => {
       "марсианская каша",
     );
   });
+
+  it("keeps partial success for mixed live smoke inputs", () => {
+    const parsed = parseFoodLogMessage("200 г риса; 100 г марсианской смеси");
+    const result = resolveParsedFoodItems(parsed.items, starterCatalogRecords());
+
+    assert.equal(parsed.rejectedParts.length, 0);
+    assert.equal(result.status, "partial");
+    assert.equal(result.status === "partial" ? result.meal.items.length : 0, 1);
+    assert.equal(
+      result.status === "partial" ? result.meal.items[0]?.food.slug : "",
+      "white-rice-cooked",
+    );
+    assert.equal(
+      result.status === "partial" ? result.unmatchedItems[0]?.rawLabel : "",
+      "марсианской смеси",
+    );
+  });
 });
 
 describe("essential food catalog seed", () => {
@@ -529,6 +622,12 @@ describe("essential food catalog seed", () => {
       "chocolate",
       "cookie-sweet-snack",
       "chicken-lavash-wrap",
+      "oatmeal-cooked",
+      "plain-yogurt",
+      "syrniki",
+      "omelet",
+      "sour-cream",
+      "coffee-with-milk",
     ];
 
     assert.ok(essentialSeedFoods.length >= 40);
