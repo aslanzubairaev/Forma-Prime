@@ -373,6 +373,33 @@ describe("food matcher", () => {
     }
   });
 
+  it("matches parsed core Russian live inputs without ambiguity", () => {
+    const seededFoods = starterCatalogRecords();
+    const cases = [
+      ["250 г куриной грудки", "chicken-breast-cooked-skinless"],
+      ["250гр куриной грудки", "chicken-breast-cooked-skinless"],
+      ["200 г варёного риса", "white-rice-cooked"],
+      ["150 г гречки", "buckwheat-cooked"],
+      ["180 г макарон", "pasta-cooked"],
+      ["4 варёных яйца", "egg-boiled"],
+      ["3 жареных яйца", "egg-fried"],
+      ["2 порции протеина", "whey-protein-powder"],
+      ["протеиновый кофе", "protein-coffee"],
+      ["лаваш с курицей", "chicken-lavash-wrap"],
+    ] as const;
+
+    for (const [input, slug] of cases) {
+      const parsed = parseFoodLogMessage(input);
+      const item = parsed.items[0];
+
+      assert.ok(item, input);
+      const result = matchFoodCandidate(item, seededFoods);
+
+      assert.equal(result.status, "matched", input);
+      assert.equal(result.status === "matched" ? result.food.slug : "", slug);
+    }
+  });
+
   it("returns not_found without inventing nutrition for unknown foods", () => {
     const result = matchFoodCandidate(
       candidateFor("марсианская каша", 100),
@@ -622,6 +649,37 @@ describe("essential food catalog seed", () => {
       false,
     );
     assert.ok(createdAliases.length > 0);
+  });
+
+  it("removes stale aliases during startup repair when supported", async () => {
+    const deletedIds: string[] = [];
+
+    await ensureEssentialNutritionFoodsSeeded({
+      nutritionFood: {
+        upsert: async (args: any) => ({
+          id: args.where.slug,
+        }),
+      } as any,
+      nutritionFoodAlias: {
+        findMany: async ({ where }: any) =>
+          where.foodId === "egg-whole"
+            ? [
+                {
+                  id: "stale_boiled_alias",
+                  languageCode: "ru",
+                  normalizedAlias: "вареные яйца",
+                },
+              ]
+            : [],
+        create: async () => ({}),
+        deleteMany: async (args: any) => {
+          deletedIds.push(...args.where.id.in);
+          return { count: args.where.id.in.length };
+        },
+      } as any,
+    });
+
+    assert.deepEqual(deletedIds, ["stale_boiled_alias"]);
   });
 });
 

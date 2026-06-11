@@ -128,19 +128,15 @@ export const essentialSeedFoods: SeedFood[] = [
     fatPer100g: 9.5,
     carbsPer100g: 0.7,
     aliases: {
-      en: ["egg", "eggs", "whole egg", "boiled egg", "boiled eggs"],
+      en: ["egg", "eggs", "whole egg"],
       ru: [
         "яйцо",
         "яйца",
         "яиц",
         "куриное яйцо",
         "куриные яйца",
-        "вареное яйцо",
-        "вареные яйца",
         "варенных яйца",
         "варенных яиц",
-        "варёное яйцо",
-        "варёные яйца",
       ],
     },
   },
@@ -759,7 +755,8 @@ type NutritionFoodAliasDelegate = PrismaClient["nutritionFoodAlias"];
 
 export async function ensureEssentialNutritionFoodsSeeded(input: {
   nutritionFood?: Pick<NutritionFoodDelegate, "upsert">;
-  nutritionFoodAlias?: Pick<NutritionFoodAliasDelegate, "findMany" | "create">;
+  nutritionFoodAlias?: Pick<NutritionFoodAliasDelegate, "findMany" | "create"> &
+    Partial<Pick<NutritionFoodAliasDelegate, "deleteMany">>;
 } = {}): Promise<void> {
   const nutritionFood = input.nutritionFood ?? prisma.nutritionFood;
   const nutritionFoodAlias = input.nutritionFoodAlias ?? prisma.nutritionFoodAlias;
@@ -771,18 +768,41 @@ export async function ensureEssentialNutritionFoodsSeeded(input: {
         foodId: savedFood.id,
       },
       select: {
+        id: true,
         languageCode: true,
         normalizedAlias: true,
       },
     });
 
+    const desiredAliases = buildNutritionFoodAliasCreateData(savedFood.id, food);
+    const desiredAliasKeys = new Set(
+      desiredAliases.map(
+        (alias) => `${alias.languageCode}:${alias.normalizedAlias}`,
+      ),
+    );
     const existingAliasKeys = new Set(
       existingAliases.map(
         (alias) => `${alias.languageCode}:${alias.normalizedAlias}`,
       ),
     );
+    const staleAliasIds = existingAliases
+      .filter(
+        (alias) =>
+          !desiredAliasKeys.has(`${alias.languageCode}:${alias.normalizedAlias}`),
+      )
+      .map((alias) => alias.id);
 
-    for (const aliasData of buildNutritionFoodAliasCreateData(savedFood.id, food)) {
+    if (staleAliasIds.length > 0 && nutritionFoodAlias.deleteMany) {
+      await nutritionFoodAlias.deleteMany({
+        where: {
+          id: {
+            in: staleAliasIds,
+          },
+        },
+      });
+    }
+
+    for (const aliasData of desiredAliases) {
       const key = `${aliasData.languageCode}:${aliasData.normalizedAlias}`;
 
       if (existingAliasKeys.has(key)) {
