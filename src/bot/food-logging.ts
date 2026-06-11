@@ -776,6 +776,7 @@ function readFoodEntryPayload(
       typeof item.quantity === "number" &&
       Number.isFinite(item.quantity) &&
       item.quantity > 0 &&
+      typeof item.unit === "string" &&
       ["g", "piece", "serving"].includes(item.unit) &&
       typeof item.grams === "number" &&
       Number.isFinite(item.grams) &&
