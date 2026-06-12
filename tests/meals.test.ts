@@ -104,6 +104,34 @@ describe("meal logging", () => {
     assert.equal(data.items.create[0].customFood.connect.id, "custom_food_1");
     assert.equal(data.items.create[0].food, undefined);
   });
+
+  it("builds MealEntry create data for learned fallback foods without catalog promotion", () => {
+    const data = buildMealEntryCreateData({
+      userId: "user_1",
+      telegramUserId: 123n,
+      rawText: "сырный раф",
+      meal: {
+        items: [
+          {
+            ...meal.items[0]!,
+            food: {
+              ...meal.items[0]!.food,
+              id: "learned_food_1",
+              slug: "learned-learned_food_1",
+              isLearned: true,
+            },
+            matchedName: "Сырный раф",
+          },
+        ],
+        totals: meal.totals,
+      },
+      consumedAt: new Date("2026-06-06T10:00:00.000Z"),
+    }) as any;
+
+    assert.equal(data.items.create[0].matchedName, "Сырный раф");
+    assert.equal(data.items.create[0].food, undefined);
+    assert.equal(data.items.create[0].customFood, undefined);
+  });
 });
 
 describe("latest meal edit/delete", () => {
