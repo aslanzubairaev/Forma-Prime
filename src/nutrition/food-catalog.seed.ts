@@ -788,6 +788,24 @@ export const essentialSeedFoods: SeedFood[] = [
     },
   },
   {
+    slug: "protein-ready-drink",
+    nameRu: "Готовый протеиновый напиток",
+    nameEn: "Ready-to-drink protein shake",
+    category: "drink",
+    caloriesPer100g: 55,
+    proteinPer100g: 6.5,
+    fatPer100g: 1.2,
+    carbsPer100g: 4.5,
+    aliases: {
+      en: ["ready protein drink", "protein shake ready to drink"],
+      ru: [
+        "готовый протеиновый напиток",
+        "магазинный протеиновый напиток",
+        "протеиновый напиток",
+      ],
+    },
+  },
+  {
     slug: "coffee",
     nameRu: "Кофе",
     nameEn: "Coffee",

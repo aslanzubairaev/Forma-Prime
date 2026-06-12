@@ -30,12 +30,28 @@ import {
   parseCustomFoodInput,
   upsertCustomFood,
 } from "../nutrition/custom-food.service.js";
+import {
+  buildClarifiedFoodCandidate,
+  detectFoodAmbiguity,
+  getFoodClarificationChoice,
+  getFoodClarificationChoiceLabel,
+  type FoodAmbiguity,
+  type FoodAmbiguityKind,
+  type FoodClarificationChoice,
+} from "../nutrition/food-ambiguity.service.js";
 import { matchFoodCandidate } from "../nutrition/food-matcher.js";
 import {
   resolveFoodFallback,
   resolveParsedFoodItemWithFallback,
 } from "../nutrition/food-fallback-resolver.js";
 import { parseFoodLogMessage } from "../nutrition/food-parser.js";
+import {
+  findActiveFoodPreference,
+  foodPreferenceToClarificationChoice,
+  incrementFoodPreferenceConfirmation,
+  upsertFoodPreference,
+  type FoodPreferenceRecord,
+} from "../nutrition/food-preference.service.js";
 import { getActiveNutritionFoods } from "../nutrition/food.repository.js";
 import { calculateMeal, calculateMealItem } from "../nutrition/nutrition-calculator.js";
 import { getProfileByUserId } from "../onboarding/onboarding.service.js";
@@ -48,7 +64,27 @@ type FoodEntryPayload = {
   selectedFoodIdsByIndex: Record<string, string>;
 };
 
+type FoodAmbiguityPayload = {
+  payloadKind: "food_ambiguity";
+  rawText: string;
+  triggerInput: string;
+  normalizedTriggerInput: string;
+  ambiguityKind: FoodAmbiguityKind;
+};
+
+type FoodPreferenceReusePayload = {
+  payloadKind: "food_preference_reuse";
+  rawText: string;
+  triggerInput: string;
+  normalizedTriggerInput: string;
+  ambiguityKind: FoodAmbiguityKind;
+  preferenceId: string;
+};
+
 const foodChoicePattern = /^food:choose:(\d+):(.+)$/;
+const foodClarificationPattern = /^food:clarify:([a-z_]+):([a-z_]+)$/;
+const foodPreferencePattern = /^food:pref:(yes|clarify)$/;
+const foodClarificationOtherAction = "food:clarify:other";
 const foodRelogPattern = /^food:relog:(.+)$/;
 const lastMealEditPattern = /^lastmeal:edit:(.+)$/;
 const lastMealDeletePattern = /^lastmeal:delete:(.+)$/;
@@ -60,6 +96,9 @@ export function registerFoodLoggingHandlers(bot: Bot): void {
   bot.command("customfood", handleCustomFoodCommand);
   bot.command("recentfoods", handleRecentFoodsCommand);
   bot.callbackQuery(foodChoicePattern, handleFoodChoiceCallback);
+  bot.callbackQuery(foodClarificationPattern, handleFoodClarificationCallback);
+  bot.callbackQuery(foodPreferencePattern, handleFoodPreferenceCallback);
+  bot.callbackQuery(foodClarificationOtherAction, handleFoodClarificationOtherCallback);
   bot.callbackQuery(foodRelogPattern, handleFoodRelogCallback);
   bot.callbackQuery(lastMealEditPattern, handleLastMealEditCallback);
   bot.callbackQuery(lastMealDeletePattern, handleLastMealDeleteCallback);
@@ -337,6 +376,148 @@ async function handleFoodChoiceCallback(ctx: Context): Promise<void> {
   );
 }
 
+async function handleFoodClarificationCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+
+  if (!ctx.from) {
+    await ctx.reply(t("en", "common.missingTelegramUser"));
+    return;
+  }
+
+  const user = await upsertTelegramUser(ctx.from);
+  const profile = await getProfileByUserId(user.id);
+  const language = normalizeLanguage(
+    profile?.preferredLanguage ?? user.languageCode,
+  );
+  const state = await getConversationState(user.id);
+  const payload = readFoodAmbiguityPayload(state.payload);
+  const callbackMatch = ctx.callbackQuery?.data?.match(foodClarificationPattern);
+
+  if (state.step !== ConversationStep.FOOD_ENTRY || !payload || !callbackMatch) {
+    await ctx.reply(t(language, "food.clarificationExpired"));
+    return;
+  }
+
+  const [, rawKind, choiceId] = callbackMatch;
+
+  if (rawKind !== payload.ambiguityKind || !choiceId) {
+    await ctx.reply(t(language, "food.clarificationExpired"));
+    return;
+  }
+
+  const choice = getFoodClarificationChoice(payload.ambiguityKind, choiceId);
+
+  if (!choice) {
+    await ctx.reply(t(language, "food.clarificationExpired"));
+    return;
+  }
+
+  const claimed = await claimConversationStep(user.id, ConversationStep.FOOD_ENTRY);
+
+  if (!claimed) {
+    await ctx.reply(t(language, "food.clarificationExpired"));
+    return;
+  }
+
+  await logClarifiedFoodChoice(ctx, {
+    userId: user.id,
+    telegramUserId: BigInt(ctx.from.id),
+    language,
+    rawText: payload.rawText,
+    triggerInput: payload.triggerInput,
+    choice,
+    afterLog: async () => {
+      await upsertFoodPreference({
+        userId: user.id,
+        triggerInput: payload.normalizedTriggerInput,
+        choice,
+      });
+    },
+  });
+}
+
+async function handleFoodPreferenceCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+
+  if (!ctx.from) {
+    await ctx.reply(t("en", "common.missingTelegramUser"));
+    return;
+  }
+
+  const user = await upsertTelegramUser(ctx.from);
+  const profile = await getProfileByUserId(user.id);
+  const language = normalizeLanguage(
+    profile?.preferredLanguage ?? user.languageCode,
+  );
+  const state = await getConversationState(user.id);
+  const payload = readFoodPreferenceReusePayload(state.payload);
+  const action = ctx.callbackQuery?.data?.match(foodPreferencePattern)?.[1];
+
+  if (state.step !== ConversationStep.FOOD_ENTRY || !payload || !action) {
+    await ctx.reply(t(language, "food.clarificationExpired"));
+    return;
+  }
+
+  if (action === "clarify") {
+    await askFoodClarification(ctx, user.id, language, {
+      kind: payload.ambiguityKind,
+      triggerInput: payload.triggerInput,
+      normalizedTriggerInput: payload.normalizedTriggerInput,
+      choices: detectFoodAmbiguity(payload.triggerInput)?.choices ?? [],
+    }, payload.rawText);
+    return;
+  }
+
+  const preference = await findActiveFoodPreference({
+    userId: user.id,
+    triggerInput: payload.normalizedTriggerInput,
+  });
+
+  if (!preference || preference.id !== payload.preferenceId) {
+    await ctx.reply(t(language, "food.clarificationExpired"));
+    return;
+  }
+
+  const choice = foodPreferenceToClarificationChoice(preference);
+
+  if (!choice) {
+    await ctx.reply(t(language, "food.clarificationExpired"));
+    return;
+  }
+
+  const claimed = await claimConversationStep(user.id, ConversationStep.FOOD_ENTRY);
+
+  if (!claimed) {
+    await ctx.reply(t(language, "food.clarificationExpired"));
+    return;
+  }
+
+  await logClarifiedFoodChoice(ctx, {
+    userId: user.id,
+    telegramUserId: BigInt(ctx.from.id),
+    language,
+    rawText: payload.rawText,
+    triggerInput: payload.triggerInput,
+    choice,
+    afterLog: async () => {
+      await incrementFoodPreferenceConfirmation(preference);
+    },
+  });
+}
+
+async function handleFoodClarificationOtherCallback(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery();
+
+  const identity = await getFoodIdentity(ctx);
+
+  if (!identity) {
+    return;
+  }
+
+  await resetConversationState(identity.userId);
+  await ctx.reply(t(identity.language, "food.parseFailed"));
+}
+
 async function handleFoodRelogCallback(ctx: Context): Promise<void> {
   await ctx.answerCallbackQuery();
 
@@ -437,6 +618,26 @@ async function processFoodLog(
   rawText: string,
   language: SupportedLanguage,
 ): Promise<void> {
+  const ambiguity = detectFoodAmbiguity(rawText);
+
+  if (ambiguity) {
+    const preference = await findActiveFoodPreference({
+      userId,
+      triggerInput: ambiguity.normalizedTriggerInput,
+    });
+    const preferredChoice = preference
+      ? foodPreferenceToClarificationChoice(preference)
+      : null;
+
+    if (preference && preferredChoice) {
+      await askFoodPreferenceReuse(ctx, language, ambiguity, preference, preferredChoice);
+      return;
+    }
+
+    await askFoodClarification(ctx, userId, language, ambiguity, rawText);
+    return;
+  }
+
   const parsed = parseFoodLogMessage(rawText);
 
   if (parsed.items.length > 0 && parsed.rejectedParts.length === 0) {
@@ -623,6 +824,135 @@ async function continueFoodLogWithSelection(
         ].join("\n")
       : recordedMessage,
   );
+}
+
+async function askFoodClarification(
+  ctx: Context,
+  userId: string,
+  language: SupportedLanguage,
+  ambiguity: FoodAmbiguity,
+  rawText: string,
+): Promise<void> {
+  await setConversationState(
+    userId,
+    ConversationStep.FOOD_ENTRY,
+    {
+      payloadKind: "food_ambiguity",
+      rawText,
+      triggerInput: ambiguity.triggerInput,
+      normalizedTriggerInput: ambiguity.normalizedTriggerInput,
+      ambiguityKind: ambiguity.kind,
+    } as unknown as ConversationPayload,
+  );
+
+  await ctx.reply(t(language, getFoodClarificationQuestionKey(ambiguity.kind)), {
+    reply_markup: foodClarificationKeyboard(ambiguity, language),
+  });
+}
+
+async function askFoodPreferenceReuse(
+  ctx: Context,
+  language: SupportedLanguage,
+  ambiguity: FoodAmbiguity,
+  preference: FoodPreferenceRecord,
+  choice: FoodClarificationChoice,
+): Promise<void> {
+  await setConversationState(
+    preference.userId,
+    ConversationStep.FOOD_ENTRY,
+    {
+      payloadKind: "food_preference_reuse",
+      rawText: ambiguity.triggerInput,
+      triggerInput: ambiguity.triggerInput,
+      normalizedTriggerInput: ambiguity.normalizedTriggerInput,
+      ambiguityKind: ambiguity.kind,
+      preferenceId: preference.id,
+    } as unknown as ConversationPayload,
+  );
+
+  await ctx.reply(
+    t(language, "food.clarify.reuseConfirm", {
+      trigger: ambiguity.normalizedTriggerInput,
+      choice: getFoodClarificationChoiceLabel(choice, language),
+    }),
+    {
+      reply_markup: foodPreferenceReuseKeyboard(language),
+    },
+  );
+}
+
+async function logClarifiedFoodChoice(
+  ctx: Context,
+  input: {
+    userId: string;
+    telegramUserId: bigint;
+    language: SupportedLanguage;
+    rawText: string;
+    triggerInput: string;
+    choice: FoodClarificationChoice;
+    afterLog: () => Promise<void>;
+  },
+): Promise<void> {
+  const foods = await getActiveNutritionFoods(input.userId);
+  const food = foods.find((candidate) => candidate.slug === input.choice.foodSlug);
+
+  if (!food) {
+    await ctx.reply(t(input.language, "food.clarificationExpired"));
+    return;
+  }
+
+  const parsedItem = buildClarifiedFoodCandidate(input.triggerInput, input.choice);
+  const meal = calculateMeal([
+    calculateMealItem(
+      food,
+      parsedItem,
+      getFoodDisplayName(food, input.language),
+    ),
+  ]);
+
+  await createMealEntry({
+    userId: input.userId,
+    telegramUserId: input.telegramUserId,
+    rawText: input.rawText,
+    meal,
+  });
+  await input.afterLog();
+
+  const dailySummary = await getDailyNutritionSummary(input.userId);
+  await ctx.reply(formatMealRecorded(input.language, meal, dailySummary));
+}
+
+function foodClarificationKeyboard(
+  ambiguity: FoodAmbiguity,
+  language: SupportedLanguage,
+): InlineKeyboard {
+  return ambiguity.choices
+    .reduce(
+      (keyboard, choice) =>
+        keyboard
+          .text(
+            getFoodClarificationChoiceLabel(choice, language),
+            `food:clarify:${ambiguity.kind}:${choice.id}`,
+          )
+          .row(),
+      new InlineKeyboard(),
+    )
+    .text(t(language, "food.clarify.button.other"), foodClarificationOtherAction);
+}
+
+function foodPreferenceReuseKeyboard(language: SupportedLanguage): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(t(language, "food.clarify.button.yes"), "food:pref:yes")
+    .text(t(language, "food.clarify.button.clarify"), "food:pref:clarify");
+}
+
+function getFoodClarificationQuestionKey(
+  kind: FoodAmbiguityKind,
+): "food.clarify.coffee.question" {
+  switch (kind) {
+    case "coffee":
+      return "food.clarify.coffee.question";
+  }
 }
 
 function foodOptionsKeyboard(
@@ -823,6 +1153,62 @@ function readFoodEntryPayload(
     parsedItems,
     selectedFoodIdsByIndex,
   };
+}
+
+function readFoodAmbiguityPayload(
+  payload: ConversationPayload | null,
+): FoodAmbiguityPayload | null {
+  if (!payload || payload.payloadKind !== "food_ambiguity") {
+    return null;
+  }
+
+  if (
+    typeof payload.rawText !== "string" ||
+    typeof payload.triggerInput !== "string" ||
+    typeof payload.normalizedTriggerInput !== "string" ||
+    !isFoodAmbiguityKind(payload.ambiguityKind)
+  ) {
+    return null;
+  }
+
+  return {
+    payloadKind: "food_ambiguity",
+    rawText: payload.rawText,
+    triggerInput: payload.triggerInput,
+    normalizedTriggerInput: payload.normalizedTriggerInput,
+    ambiguityKind: payload.ambiguityKind,
+  };
+}
+
+function readFoodPreferenceReusePayload(
+  payload: ConversationPayload | null,
+): FoodPreferenceReusePayload | null {
+  if (!payload || payload.payloadKind !== "food_preference_reuse") {
+    return null;
+  }
+
+  if (
+    typeof payload.rawText !== "string" ||
+    typeof payload.triggerInput !== "string" ||
+    typeof payload.normalizedTriggerInput !== "string" ||
+    typeof payload.preferenceId !== "string" ||
+    !isFoodAmbiguityKind(payload.ambiguityKind)
+  ) {
+    return null;
+  }
+
+  return {
+    payloadKind: "food_preference_reuse",
+    rawText: payload.rawText,
+    triggerInput: payload.triggerInput,
+    normalizedTriggerInput: payload.normalizedTriggerInput,
+    ambiguityKind: payload.ambiguityKind,
+    preferenceId: payload.preferenceId,
+  };
+}
+
+function isFoodAmbiguityKind(value: unknown): value is FoodAmbiguityKind {
+  return value === "coffee";
 }
 
 function readLatestMealPayload(
