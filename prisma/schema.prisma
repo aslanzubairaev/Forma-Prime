@@ -101,6 +101,7 @@ model User {
   nutritionTarget    NutritionTarget?
   customFoods        CustomFood[]
   learnedFoodCandidates LearnedFoodCandidate[]
+  foodPreferences    FoodPreference[]
   mealEntries        MealEntry[]
   foodEntries        FoodEntry[]
   workoutSplits      WorkoutSplit[]
@@ -220,6 +221,28 @@ model LearnedFoodCandidate {
   @@index([normalizedInput])
   @@index([userId, normalizedInput])
   @@index([rejectedAt])
+}
+
+model FoodPreference {
+  id                       String   @id @default(cuid())
+  userId                   String
+  triggerInput             String
+  normalizedTriggerInput   String
+  preferredCanonicalName   String
+  preferredDisplayName     String
+  preferredFoodSlug        String
+  preferredServingGrams    Decimal? @db.Decimal(10, 2)
+  preferenceKind           String   @default("clarification_choice")
+  confirmationCount        Int      @default(1)
+  lastConfirmedAt          DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  isActive                 Boolean  @default(true)
+
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, normalizedTriggerInput, preferenceKind])
+  @@index([userId, normalizedTriggerInput, isActive])
 }
 
 model NutritionFoodAlias {
