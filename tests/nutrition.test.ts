@@ -673,6 +673,31 @@ describe("food matcher", () => {
     }
   });
 
+  it("matches explicit ambiguity variants deterministically", () => {
+    const seededFoods = starterCatalogRecords();
+    const cases = [
+      ["греческий йогурт", "greek-yogurt"],
+      ["протеиновый йогурт", "protein-yogurt"],
+      ["овощной салат", "vegetable-salad"],
+      ["салат с курицей", "chicken-salad"],
+      ["сэндвич с сыром", "cheese-sandwich"],
+      ["сэндвич с курицей", "chicken-sandwich"],
+      ["чизбургер", "cheeseburger"],
+      ["двойной бургер", "double-burger"],
+    ] as const;
+
+    for (const [input, slug] of cases) {
+      const parsed = parseFoodLogMessage(input);
+      const item = parsed.items[0];
+
+      assert.ok(item, input);
+      const result = matchFoodCandidate(item, seededFoods);
+
+      assert.equal(result.status, "matched", input);
+      assert.equal(result.status === "matched" ? result.food.slug : "", slug);
+    }
+  });
+
   it("returns not_found without inventing nutrition for unknown foods", () => {
     const result = matchFoodCandidate(
       candidateFor("марсианская каша", 100),

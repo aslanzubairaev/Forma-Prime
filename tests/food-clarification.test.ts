@@ -28,6 +28,50 @@ describe("food ambiguity clarification", () => {
     assert.equal(detectFoodAmbiguity("200 г риса"), null);
   });
 
+  it("detects high-value ambiguous foods while preserving explicit variants", () => {
+    const cases = [
+      {
+        input: "йогурт",
+        kind: "yogurt",
+        slugs: ["greek-yogurt", "fruit-yogurt", "drinkable-yogurt", "protein-yogurt"],
+        explicit: ["греческий йогурт", "протеиновый йогурт"],
+      },
+      {
+        input: "салат",
+        kind: "salad",
+        slugs: ["vegetable-salad", "chicken-salad", "mayo-salad"],
+        explicit: ["салат с курицей", "овощной салат"],
+      },
+      {
+        input: "сэндвич",
+        kind: "sandwich",
+        slugs: ["sandwich", "chicken-sandwich", "cheese-sandwich"],
+        explicit: ["сэндвич с сыром", "сэндвич с курицей"],
+      },
+      {
+        input: "бургер",
+        kind: "burger",
+        slugs: ["burger", "cheeseburger", "double-burger"],
+        explicit: ["чизбургер", "двойной бургер"],
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const ambiguity = detectFoodAmbiguity(testCase.input);
+
+      assert.equal(ambiguity?.kind, testCase.kind, testCase.input);
+      assert.deepEqual(
+        ambiguity?.choices.map((choice) => choice.foodSlug),
+        testCase.slugs,
+        testCase.input,
+      );
+
+      for (const explicitInput of testCase.explicit) {
+        assert.equal(detectFoodAmbiguity(explicitInput), null, explicitInput);
+      }
+    }
+  });
+
   it("builds a deterministic parsed item from a clarification choice", () => {
     const choice = getFoodClarificationChoice("coffee", "protein_coffee");
 
@@ -39,6 +83,26 @@ describe("food ambiguity clarification", () => {
     assert.equal(item.unit, "serving");
     assert.equal(item.quantity, 1);
     assert.equal(item.grams, 330);
+  });
+
+  it("builds deterministic parsed items for expanded clarification choices", () => {
+    const cases = [
+      ["yogurt", "protein_yogurt", "протеиновый йогурт", 180],
+      ["salad", "chicken_salad", "салат с курицей", 300],
+      ["sandwich", "cheese_sandwich", "сэндвич с сыром", 180],
+      ["burger", "double_burger", "двойной бургер", 320],
+    ] as const;
+
+    for (const [kind, choiceId, normalizedLabel, grams] of cases) {
+      const choice = getFoodClarificationChoice(kind, choiceId);
+
+      assert.ok(choice, `${kind}:${choiceId}`);
+      const item = buildClarifiedFoodCandidate(kind, choice);
+
+      assert.equal(item.normalizedLabel, normalizedLabel, `${kind}:${choiceId}`);
+      assert.equal(item.unit, "serving", `${kind}:${choiceId}`);
+      assert.equal(item.grams, grams, `${kind}:${choiceId}`);
+    }
   });
 
   it("builds user-specific preference persistence data for a chosen clarification", () => {
@@ -76,7 +140,15 @@ describe("food ambiguity clarification", () => {
 
   it("has short RU and EN clarification copy", () => {
     assert.match(t("ru", "food.clarify.coffee.question"), /кофе/i);
+    assert.match(t("ru", "food.clarify.yogurt.question"), /йогурт/i);
+    assert.match(t("ru", "food.clarify.salad.question"), /салат/i);
+    assert.match(t("ru", "food.clarify.sandwich.question"), /сэндвич/i);
+    assert.match(t("ru", "food.clarify.burger.question"), /бургер/i);
     assert.match(t("en", "food.clarify.coffee.question"), /coffee/i);
+    assert.match(t("en", "food.clarify.yogurt.question"), /yogurt/i);
+    assert.match(t("en", "food.clarify.salad.question"), /salad/i);
+    assert.match(t("en", "food.clarify.sandwich.question"), /sandwich/i);
+    assert.match(t("en", "food.clarify.burger.question"), /burger/i);
     assert.match(t("ru", "food.clarify.reuseConfirm", { trigger: "кофе", choice: "Протеиновый кофе" }), /Обычно/i);
     assert.match(t("en", "food.clarify.reuseConfirm", { trigger: "coffee", choice: "Protein coffee" }), /Usually/i);
   });
