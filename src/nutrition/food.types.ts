@@ -19,6 +19,7 @@ export type NutritionFoodRecord = {
   nameRu: string;
   nameEn: string;
   isCustom?: boolean;
+  isLearned?: boolean;
   caloriesPer100g: unknown;
   proteinPer100g: unknown;
   fatPer100g: unknown;
