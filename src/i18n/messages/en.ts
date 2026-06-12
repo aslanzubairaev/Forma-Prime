@@ -43,6 +43,7 @@ export const en = {
   "food.clarificationExpired": "That action expired. Send the meal again or use /food.",
   "food.recorded": "Recorded meal:",
   "food.estimatedNote": "Estimated based on the food database.",
+  "food.estimatedDishSuffix": "approximate dish estimate",
   "food.itemLine": "{name}  {grams} g",
   "food.macroLine": "{calories} kcal  P {protein}  F {fat}  C {carbs}",
   "food.total": "Total:",

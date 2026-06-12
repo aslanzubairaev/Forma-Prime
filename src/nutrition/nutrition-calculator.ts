@@ -20,6 +20,7 @@ export function calculateMealItem(
     quantity: parsedItem.quantity,
     unit: parsedItem.unit,
     grams: parsedItem.grams,
+    ...(parsedItem.isEstimate ? { isEstimate: true } : {}),
     calories: toNumber(food.caloriesPer100g) * multiplier,
     proteinG: toNumber(food.proteinPer100g) * multiplier,
     fatG: toNumber(food.fatPer100g) * multiplier,

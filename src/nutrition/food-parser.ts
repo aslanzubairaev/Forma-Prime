@@ -91,6 +91,8 @@ const servingRules = [
       "whey",
       "протеин",
       "протеина",
+      "изолят",
+      "изолята",
       "порция протеина",
       "порции протеина",
     ],
@@ -128,6 +130,12 @@ const servingRules = [
     unit: "piece",
     gramsPerServing: 60,
   },
+  {
+    terms: ["тортилья", "тортильи", "tortilla"],
+    normalizedLabel: "тортилья",
+    unit: "piece",
+    gramsPerServing: 60,
+  },
 ] as const;
 
 const quickMealRules = [
@@ -141,11 +149,56 @@ const quickMealRules = [
       "лаваш с курицей",
       "домашняя шаурма",
       "шаурма домашняя",
+      "домашние шаурмы",
+      "домашнюю шаурму",
       "chicken lavash wrap",
       "chicken wrap",
     ],
     normalizedLabel: "лаваш с курицей",
     grams: 250,
+    isEstimate: true,
+  },
+  {
+    terms: ["шаурма", "шаурмы", "шаурму", "shawarma"],
+    normalizedLabel: "шаурма",
+    grams: 350,
+    isEstimate: true,
+  },
+  {
+    terms: ["такос", "тако", "taco", "tacos"],
+    normalizedLabel: "такос",
+    grams: 180,
+    isEstimate: true,
+  },
+  {
+    terms: ["буррито", "burrito"],
+    normalizedLabel: "буррито",
+    grams: 350,
+    isEstimate: true,
+  },
+  {
+    terms: ["бутерброд", "бутерброда", "бутер", "сэндвич", "сэндвича", "sandwich"],
+    normalizedLabel: "бутерброд",
+    grams: 180,
+    isEstimate: true,
+  },
+  {
+    terms: ["рис с курицей", "курица с рисом", "chicken rice", "rice with chicken"],
+    normalizedLabel: "рис с курицей",
+    grams: 350,
+    isEstimate: true,
+  },
+  {
+    terms: ["паста с курицей", "макароны с курицей", "chicken pasta", "pasta with chicken"],
+    normalizedLabel: "паста с курицей",
+    grams: 350,
+    isEstimate: true,
+  },
+  {
+    terms: ["салат с курицей", "куриный салат", "chicken salad"],
+    normalizedLabel: "салат с курицей",
+    grams: 300,
+    isEstimate: true,
   },
   {
     terms: ["протеиновый батончик", "протеиновый бар", "protein bar"],
@@ -162,9 +215,20 @@ const quickMealRules = [
     normalizedLabel: "кофе",
     grams: 200,
   },
+  {
+    terms: ["кола зеро", "cola zero", "coke zero", "zero cola"],
+    normalizedLabel: "кола зеро",
+    grams: 330,
+  },
 ] as const;
 
 export function parseFoodLogMessage(input: string): FoodLogParseResult {
+  const ingredientSection = extractIngredientSection(input);
+
+  if (ingredientSection) {
+    return parseFoodLogMessage(ingredientSection);
+  }
+
   const parts = splitFoodLogParts(input)
     .map((part) => part.trim())
     .filter(Boolean);
@@ -309,6 +373,15 @@ function buildConversationalServingParsedItem(
         quantity * 30,
       );
     }
+
+    if (!extractAnyQuantity(strippedLabel)) {
+      return buildServingItem(
+        stripQuantityWords(strippedLabel),
+        "протеин",
+        1,
+        30,
+      );
+    }
   }
 
   if (isEggText(strippedLabel)) {
@@ -342,23 +415,22 @@ function buildQuickMealParsedItem(part: string): ParsedFoodItemCandidate | null 
   }
 
   const normalizedLabel = normalizeFoodText(label);
-  const rule = quickMealRules.find((candidate) =>
-    candidate.terms.some(
-      (term) =>
-        stripConversationalWrappers(normalizedLabel) === normalizeFoodText(term),
-    ),
-  );
+  const strippedLabel = stripConversationalWrappers(normalizedLabel);
+  const rule = findQuickMealRule(strippedLabel);
 
   if (!rule) {
     return null;
   }
 
+  const quantity = extractAnyQuantity(strippedLabel) ?? 1;
+
   return {
     rawLabel: label,
     normalizedLabel: rule.normalizedLabel,
-    quantity: 1,
+    quantity,
     unit: "serving",
-    grams: rule.grams,
+    grams: quantity * rule.grams,
+    ...("isEstimate" in rule && rule.isEstimate ? { isEstimate: true } : {}),
   };
 }
 
@@ -445,6 +517,41 @@ function buildServingParsedItem(
   };
 }
 
+function extractIngredientSection(input: string): string | null {
+  const [prefix, ...rest] = input.split(":");
+
+  if (!prefix || rest.length === 0) {
+    return null;
+  }
+
+  const normalizedPrefix = stripConversationalWrappers(prefix);
+
+  if (!findQuickMealRule(normalizedPrefix)) {
+    return null;
+  }
+
+  const ingredientText = rest.join(":").trim();
+
+  return ingredientText.length > 0 ? ingredientText : null;
+}
+
+function findQuickMealRule(value: string): (typeof quickMealRules)[number] | null {
+  const strippedValue = stripQuantityWords(value);
+
+  return (
+    quickMealRules.find((candidate) =>
+      candidate.terms.some((term) => {
+        const normalizedTerm = normalizeFoodText(term);
+
+        return (
+          strippedValue === normalizedTerm ||
+          isTokenSubsetMatch(strippedValue, normalizedTerm)
+        );
+      }),
+    ) ?? null
+  );
+}
+
 function stripConversationalWrappers(value: string): string {
   return normalizeFoodText(value)
     .split(" ")
@@ -458,7 +565,11 @@ function isNutritionHintPart(part: string): boolean {
 }
 
 function isProteinText(value: string): boolean {
-  return value.includes("протеин") || /\b(?:protein|whey)\b/iu.test(value);
+  return (
+    value.includes("протеин") ||
+    value.includes("изолят") ||
+    /\b(?:protein|whey|isolate)\b/iu.test(value)
+  );
 }
 
 function isProteinCoffeeText(value: string): boolean {
@@ -542,4 +653,32 @@ function stripQuantityWords(value: string): string {
     )
     .join(" ")
     .trim();
+}
+
+function isTokenSubsetMatch(value: string, term: string): boolean {
+  const valueTokens = getMeaningfulTokens(value);
+  const termTokens = getMeaningfulTokens(term);
+
+  if (valueTokens.length < 2 || termTokens.length < 2) {
+    return false;
+  }
+
+  const valueTokenSet = new Set(valueTokens);
+  const termTokenSet = new Set(termTokens);
+
+  return (
+    termTokens.every((token) => valueTokenSet.has(token)) ||
+    valueTokens.every((token) => termTokenSet.has(token))
+  );
+}
+
+function getMeaningfulTokens(value: string): string[] {
+  return normalizeFoodText(value)
+    .split(" ")
+    .filter(
+      (token) =>
+        token.length >= 3 &&
+        !parseQuantityToken(token) &&
+        !/^(?:шт|штук|штуки|штука)$/iu.test(token),
+    );
 }

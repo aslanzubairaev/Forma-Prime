@@ -702,7 +702,9 @@ function formatMealRecorded(
     "",
     ...meal.items.flatMap((item) => [
       t(language, "food.itemLine", {
-        name: item.matchedName,
+        name: item.isEstimate
+          ? `${item.matchedName} (${t(language, "food.estimatedDishSuffix")})`
+          : item.matchedName,
         grams: roundForDisplay(item.grams, 0),
       }),
       formatMacroLine(language, item),

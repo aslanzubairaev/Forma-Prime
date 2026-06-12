@@ -4,6 +4,7 @@ export type ParsedFoodItemCandidate = {
   quantity: number;
   unit: "g" | "piece" | "serving";
   grams: number;
+  isEstimate?: boolean;
 };
 
 export type FoodAliasRecord = {
@@ -72,6 +73,7 @@ export type CalculatedMealItem = {
   quantity: number;
   unit: "g" | "piece" | "serving";
   grams: number;
+  isEstimate?: boolean;
   calories: number;
   proteinG: number;
   fatG: number;

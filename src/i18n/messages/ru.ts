@@ -45,6 +45,7 @@ export const ru = {
   "food.clarificationExpired": "Это действие устарело. Отправьте прием пищи заново или используйте /food.",
   "food.recorded": "Прием пищи записан:",
   "food.estimatedNote": "Оценка на основе базы продуктов.",
+  "food.estimatedDishSuffix": "примерная оценка блюда",
   "food.itemLine": "{name}  {grams} г",
   "food.macroLine": "{calories} ккал  Б {protein}  Ж {fat}  У {carbs}",
   "food.total": "Итого:",
