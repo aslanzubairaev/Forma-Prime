@@ -2,7 +2,12 @@ import type { SupportedLanguage } from "../i18n/index.js";
 import { normalizeFoodText } from "./food-normalization.js";
 import type { ParsedFoodItemCandidate } from "./food.types.js";
 
-export type FoodAmbiguityKind = "coffee";
+export type FoodAmbiguityKind =
+  | "coffee"
+  | "yogurt"
+  | "salad"
+  | "sandwich"
+  | "burger";
 
 export type FoodClarificationChoice = {
   id: string;
@@ -74,19 +79,174 @@ const coffeeChoices: FoodClarificationChoice[] = [
   },
 ];
 
+const yogurtChoices: FoodClarificationChoice[] = [
+  {
+    id: "greek_yogurt",
+    kind: "yogurt",
+    foodSlug: "greek-yogurt",
+    canonicalName: "greek_yogurt",
+    displayNameRu: "Греческий йогурт",
+    displayNameEn: "Greek yogurt",
+    normalizedLabel: "греческий йогурт",
+    servingGrams: 170,
+  },
+  {
+    id: "fruit_yogurt",
+    kind: "yogurt",
+    foodSlug: "fruit-yogurt",
+    canonicalName: "fruit_yogurt",
+    displayNameRu: "Сладкий фруктовый йогурт",
+    displayNameEn: "Sweet fruit yogurt",
+    normalizedLabel: "фруктовый йогурт",
+    servingGrams: 150,
+  },
+  {
+    id: "drinkable_yogurt",
+    kind: "yogurt",
+    foodSlug: "drinkable-yogurt",
+    canonicalName: "drinkable_yogurt",
+    displayNameRu: "Питьевой йогурт",
+    displayNameEn: "Drinkable yogurt",
+    normalizedLabel: "питьевой йогурт",
+    servingGrams: 290,
+  },
+  {
+    id: "protein_yogurt",
+    kind: "yogurt",
+    foodSlug: "protein-yogurt",
+    canonicalName: "protein_yogurt",
+    displayNameRu: "Протеиновый йогурт",
+    displayNameEn: "Protein yogurt",
+    normalizedLabel: "протеиновый йогурт",
+    servingGrams: 180,
+  },
+];
+
+const saladChoices: FoodClarificationChoice[] = [
+  {
+    id: "vegetable_salad",
+    kind: "salad",
+    foodSlug: "vegetable-salad",
+    canonicalName: "vegetable_salad",
+    displayNameRu: "Овощной салат",
+    displayNameEn: "Vegetable salad",
+    normalizedLabel: "овощной салат",
+    servingGrams: 250,
+  },
+  {
+    id: "chicken_salad",
+    kind: "salad",
+    foodSlug: "chicken-salad",
+    canonicalName: "chicken_salad",
+    displayNameRu: "Салат с курицей",
+    displayNameEn: "Chicken salad",
+    normalizedLabel: "салат с курицей",
+    servingGrams: 300,
+  },
+  {
+    id: "mayo_salad",
+    kind: "salad",
+    foodSlug: "mayo-salad",
+    canonicalName: "mayo_salad",
+    displayNameRu: "Салат с майонезом",
+    displayNameEn: "Mayo-based salad",
+    normalizedLabel: "салат с майонезом",
+    servingGrams: 200,
+  },
+];
+
+const sandwichChoices: FoodClarificationChoice[] = [
+  {
+    id: "simple_sandwich",
+    kind: "sandwich",
+    foodSlug: "sandwich",
+    canonicalName: "simple_sandwich",
+    displayNameRu: "Простой бутерброд",
+    displayNameEn: "Simple sandwich",
+    normalizedLabel: "бутерброд",
+    servingGrams: 180,
+  },
+  {
+    id: "chicken_sandwich",
+    kind: "sandwich",
+    foodSlug: "chicken-sandwich",
+    canonicalName: "chicken_sandwich",
+    displayNameRu: "Сэндвич с курицей",
+    displayNameEn: "Chicken sandwich",
+    normalizedLabel: "сэндвич с курицей",
+    servingGrams: 220,
+  },
+  {
+    id: "cheese_sandwich",
+    kind: "sandwich",
+    foodSlug: "cheese-sandwich",
+    canonicalName: "cheese_sandwich",
+    displayNameRu: "Сэндвич с сыром",
+    displayNameEn: "Cheese sandwich",
+    normalizedLabel: "сэндвич с сыром",
+    servingGrams: 180,
+  },
+];
+
+const burgerChoices: FoodClarificationChoice[] = [
+  {
+    id: "burger",
+    kind: "burger",
+    foodSlug: "burger",
+    canonicalName: "burger",
+    displayNameRu: "Обычный бургер",
+    displayNameEn: "Burger",
+    normalizedLabel: "бургер",
+    servingGrams: 250,
+  },
+  {
+    id: "cheeseburger",
+    kind: "burger",
+    foodSlug: "cheeseburger",
+    canonicalName: "cheeseburger",
+    displayNameRu: "Чизбургер",
+    displayNameEn: "Cheeseburger",
+    normalizedLabel: "чизбургер",
+    servingGrams: 220,
+  },
+  {
+    id: "double_burger",
+    kind: "burger",
+    foodSlug: "double-burger",
+    canonicalName: "double_burger",
+    displayNameRu: "Двойной бургер",
+    displayNameEn: "Double burger",
+    normalizedLabel: "двойной бургер",
+    servingGrams: 320,
+  },
+];
+
 const choicesByKind: Record<FoodAmbiguityKind, FoodClarificationChoice[]> = {
   coffee: coffeeChoices,
+  yogurt: yogurtChoices,
+  salad: saladChoices,
+  sandwich: sandwichChoices,
+  burger: burgerChoices,
+};
+
+const ambiguityTriggers: Record<FoodAmbiguityKind, string[]> = {
+  coffee: ["кофе", "coffee"],
+  yogurt: ["йогурт", "yogurt"],
+  salad: ["салат", "salad"],
+  sandwich: ["сэндвич", "sandwich"],
+  burger: ["бургер", "burger"],
 };
 
 export function detectFoodAmbiguity(rawInput: string): FoodAmbiguity | null {
   const normalizedTriggerInput = stripWrapperWords(normalizeFoodText(rawInput));
+  const kind = findAmbiguityKind(normalizedTriggerInput);
 
-  if (normalizedTriggerInput === "кофе" || normalizedTriggerInput === "coffee") {
+  if (kind) {
     return {
-      kind: "coffee",
+      kind,
       triggerInput: rawInput.trim(),
       normalizedTriggerInput,
-      choices: coffeeChoices,
+      choices: choicesByKind[kind],
     };
   }
 
@@ -136,4 +296,14 @@ function stripWrapperWords(value: string): string {
     .filter((token) => !wrapperWords.has(token))
     .join(" ")
     .trim();
+}
+
+function findAmbiguityKind(value: string): FoodAmbiguityKind | null {
+  for (const [kind, triggers] of Object.entries(ambiguityTriggers)) {
+    if (triggers.includes(value)) {
+      return kind as FoodAmbiguityKind;
+    }
+  }
+
+  return null;
 }

@@ -948,10 +948,23 @@ function foodPreferenceReuseKeyboard(language: SupportedLanguage): InlineKeyboar
 
 function getFoodClarificationQuestionKey(
   kind: FoodAmbiguityKind,
-): "food.clarify.coffee.question" {
+):
+  | "food.clarify.coffee.question"
+  | "food.clarify.yogurt.question"
+  | "food.clarify.salad.question"
+  | "food.clarify.sandwich.question"
+  | "food.clarify.burger.question" {
   switch (kind) {
     case "coffee":
       return "food.clarify.coffee.question";
+    case "yogurt":
+      return "food.clarify.yogurt.question";
+    case "salad":
+      return "food.clarify.salad.question";
+    case "sandwich":
+      return "food.clarify.sandwich.question";
+    case "burger":
+      return "food.clarify.burger.question";
   }
 }
 
@@ -1208,7 +1221,13 @@ function readFoodPreferenceReusePayload(
 }
 
 function isFoodAmbiguityKind(value: unknown): value is FoodAmbiguityKind {
-  return value === "coffee";
+  return (
+    value === "coffee" ||
+    value === "yogurt" ||
+    value === "salad" ||
+    value === "sandwich" ||
+    value === "burger"
+  );
 }
 
 function readLatestMealPayload(

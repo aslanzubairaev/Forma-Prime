@@ -201,6 +201,68 @@ const quickMealRules = [
     isEstimate: true,
   },
   {
+    terms: ["греческий йогурт", "йогурт греческий", "greek yogurt"],
+    normalizedLabel: "греческий йогурт",
+    grams: 170,
+  },
+  {
+    terms: ["фруктовый йогурт", "сладкий йогурт", "fruit yogurt", "sweet yogurt"],
+    normalizedLabel: "фруктовый йогурт",
+    grams: 150,
+  },
+  {
+    terms: ["питьевой йогурт", "йогурт питьевой", "drinkable yogurt", "drinking yogurt"],
+    normalizedLabel: "питьевой йогурт",
+    grams: 290,
+  },
+  {
+    terms: ["протеиновый йогурт", "йогурт протеиновый", "protein yogurt"],
+    normalizedLabel: "протеиновый йогурт",
+    grams: 180,
+  },
+  {
+    terms: ["овощной салат", "салат овощной", "vegetable salad"],
+    normalizedLabel: "овощной салат",
+    grams: 250,
+    isEstimate: true,
+  },
+  {
+    terms: ["салат с майонезом", "майонезный салат", "mayo salad"],
+    normalizedLabel: "салат с майонезом",
+    grams: 200,
+    isEstimate: true,
+  },
+  {
+    terms: ["сэндвич с курицей", "бутерброд с курицей", "chicken sandwich"],
+    normalizedLabel: "сэндвич с курицей",
+    grams: 220,
+    isEstimate: true,
+  },
+  {
+    terms: ["сэндвич с сыром", "бутерброд с сыром", "cheese sandwich"],
+    normalizedLabel: "сэндвич с сыром",
+    grams: 180,
+    isEstimate: true,
+  },
+  {
+    terms: ["чизбургер", "cheeseburger"],
+    normalizedLabel: "чизбургер",
+    grams: 220,
+    isEstimate: true,
+  },
+  {
+    terms: ["двойной бургер", "двойной чизбургер", "double burger", "double cheeseburger"],
+    normalizedLabel: "двойной бургер",
+    grams: 320,
+    isEstimate: true,
+  },
+  {
+    terms: ["гамбургер", "hamburger"],
+    normalizedLabel: "бургер",
+    grams: 250,
+    isEstimate: true,
+  },
+  {
     terms: ["протеиновый батончик", "протеиновый бар", "protein bar"],
     normalizedLabel: "протеиновый батончик",
     grams: 60,
@@ -360,6 +422,10 @@ function buildConversationalServingParsedItem(
 
   if (isPlainCoffeeText(strippedLabel)) {
     return buildServingItem(label, "кофе", 1, 200);
+  }
+
+  if (isProteinYogurtText(strippedLabel)) {
+    return buildServingItem(label, "протеиновый йогурт", 1, 180);
   }
 
   if (isProteinText(strippedLabel)) {
@@ -574,6 +640,13 @@ function isProteinText(value: string): boolean {
 
 function isProteinCoffeeText(value: string): boolean {
   return hasToken(value, "кофе") && isProteinText(value);
+}
+
+function isProteinYogurtText(value: string): boolean {
+  return (
+    (hasToken(value, "йогурт") && isProteinText(value)) ||
+    /\bprotein yogurt\b/iu.test(value)
+  );
 }
 
 function isCoffeeWithMilkText(value: string): boolean {
