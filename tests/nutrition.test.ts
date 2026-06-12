@@ -418,6 +418,82 @@ describe("food parser", () => {
       assert.equal(result.items[0]?.grams, 250, input);
     }
   });
+
+  it("parses expanded deterministic vocabulary and serving aliases", () => {
+    const cases = [
+      ["изолят две порции", "протеин", 60, "serving"],
+      ["выпил протеин", "протеин", 30, "serving"],
+      ["1 тортилья", "тортилья", 60, "piece"],
+      ["кола зеро", "кола зеро", 330, "serving"],
+      ["cola zero", "кола зеро", 330, "serving"],
+    ] as const;
+
+    for (const [input, normalizedLabel, grams, unit] of cases) {
+      const result = parseFoodLogMessage(input);
+
+      assert.equal(result.rejectedParts.length, 0, input);
+      assert.equal(result.items.length, 1, input);
+      assert.equal(result.items[0]?.normalizedLabel, normalizedLabel, input);
+      assert.equal(result.items[0]?.grams, grams, input);
+      assert.equal(result.items[0]?.unit, unit, input);
+    }
+  });
+
+  it("parses common composed dish estimates without explicit grams", () => {
+    const cases = [
+      ["шаурма", "шаурма", 350],
+      ["2 шаурмы", "шаурма", 700],
+      ["две домашние шаурмы", "лаваш с курицей", 500],
+      ["такос", "такос", 180],
+      ["буррито", "буррито", 350],
+      ["бутерброд", "бутерброд", 180],
+      ["сэндвич", "бутерброд", 180],
+      ["рис с курицей", "рис с курицей", 350],
+      ["паста с курицей", "паста с курицей", 350],
+      ["салат с курицей", "салат с курицей", 300],
+    ] as const;
+
+    for (const [input, normalizedLabel, grams] of cases) {
+      const result = parseFoodLogMessage(input);
+
+      assert.equal(result.rejectedParts.length, 0, input);
+      assert.equal(result.items.length, 1, input);
+      assert.equal(result.items[0]?.normalizedLabel, normalizedLabel, input);
+      assert.equal(result.items[0]?.grams, grams, input);
+      assert.equal(result.items[0]?.isEstimate, true, input);
+    }
+  });
+
+  it("prefers deterministic ingredient parsing for homemade dish details", () => {
+    const cases = [
+      {
+        input: "домашняя шаурма: лаваш 60 г, курица 150 г, йогурт 50 г",
+        labels: ["лаваш", "курица", "йогурт"],
+        grams: [60, 150, 50],
+      },
+      {
+        input: "рис с курицей: 200 г риса, 150 г курицы",
+        labels: ["риса", "курицы"],
+        grams: [200, 150],
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const result = parseFoodLogMessage(testCase.input);
+
+      assert.equal(result.rejectedParts.length, 0, testCase.input);
+      assert.deepEqual(
+        result.items.map((item) => item.rawLabel),
+        testCase.labels,
+        testCase.input,
+      );
+      assert.deepEqual(
+        result.items.map((item) => item.grams),
+        testCase.grams,
+        testCase.input,
+      );
+    }
+  });
 });
 
 describe("food matcher", () => {
@@ -569,6 +645,34 @@ describe("food matcher", () => {
     }
   });
 
+  it("matches expanded vocabulary and common dish estimates deterministically", () => {
+    const seededFoods = starterCatalogRecords();
+    const cases = [
+      ["изолят две порции", "whey-protein-powder"],
+      ["1 тортилья", "tortilla"],
+      ["кола зеро", "cola-zero"],
+      ["шаурма", "shawarma"],
+      ["две домашние шаурмы", "chicken-lavash-wrap"],
+      ["такос", "tacos"],
+      ["буррито", "burrito"],
+      ["бутерброд", "sandwich"],
+      ["рис с курицей", "chicken-rice-bowl"],
+      ["паста с курицей", "chicken-pasta"],
+      ["салат с курицей", "chicken-salad"],
+    ] as const;
+
+    for (const [input, slug] of cases) {
+      const parsed = parseFoodLogMessage(input);
+      const item = parsed.items[0];
+
+      assert.ok(item, input);
+      const result = matchFoodCandidate(item, seededFoods);
+
+      assert.equal(result.status, "matched", input);
+      assert.equal(result.status === "matched" ? result.food.slug : "", slug);
+    }
+  });
+
   it("returns not_found without inventing nutrition for unknown foods", () => {
     const result = matchFoodCandidate(
       candidateFor("марсианская каша", 100),
@@ -607,6 +711,17 @@ describe("nutrition calculator", () => {
     assert.equal(meal.totals.proteinG, 67.95);
     assertApproxEqual(meal.totals.fatG, 7.725);
     assert.equal(meal.totals.carbsG, 71.475);
+  });
+
+  it("preserves dish estimate metadata through calculation", () => {
+    const shawarma = seedToNutritionFoodRecord(
+      "food_shawarma",
+      essentialSeedFoods.find((food) => food.slug === "shawarma")!,
+    );
+    const parsed = parseFoodLogMessage("шаурма").items[0]!;
+    const item = calculateMealItem(shawarma, parsed, "Shawarma");
+
+    assert.equal(item.isEstimate, true);
   });
 });
 
@@ -722,6 +837,15 @@ describe("essential food catalog seed", () => {
       "sour-cream",
       "coffee-with-milk",
       "coffee",
+      "tortilla",
+      "cola-zero",
+      "shawarma",
+      "tacos",
+      "burrito",
+      "sandwich",
+      "chicken-salad",
+      "chicken-rice-bowl",
+      "chicken-pasta",
     ];
 
     assert.ok(essentialSeedFoods.length >= 40);

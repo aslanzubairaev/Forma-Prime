@@ -95,6 +95,11 @@ describe("fallback behavior polish", () => {
     assert.match(t("ru", "food.parseFailed"), /проще/);
     assert.match(t("ru", "food.parseFailed"), /2 порции протеина/);
   });
+
+  it("labels approximate dish estimates clearly", () => {
+    assert.match(t("en", "food.estimatedDishSuffix"), /estimate/i);
+    assert.match(t("ru", "food.estimatedDishSuffix"), /примерная/i);
+  });
 });
 
 describe("environment validation", () => {
