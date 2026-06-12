@@ -94,6 +94,10 @@ function buildMealEntryItemCreateData(
       carbsG: item.carbsG,
     };
 
+    if (item.food.isLearned) {
+      return data;
+    }
+
     if (item.food.isCustom) {
       data.customFood = {
         connect: {

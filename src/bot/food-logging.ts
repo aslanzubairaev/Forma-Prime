@@ -20,7 +20,6 @@ import {
   type DailyNutritionSummary,
   type LatestMealEntry,
 } from "../meals/meals.service.js";
-import { parseFoodDraft } from "../meals/ai-food-draft.service.js";
 import {
   type CalculatedMeal,
   type NutritionFoodRecord,
@@ -32,6 +31,10 @@ import {
   upsertCustomFood,
 } from "../nutrition/custom-food.service.js";
 import { matchFoodCandidate } from "../nutrition/food-matcher.js";
+import {
+  resolveFoodFallback,
+  resolveParsedFoodItemWithFallback,
+} from "../nutrition/food-fallback-resolver.js";
 import { parseFoodLogMessage } from "../nutrition/food-parser.js";
 import { getActiveNutritionFoods } from "../nutrition/food.repository.js";
 import { calculateMeal, calculateMealItem } from "../nutrition/nutrition-calculator.js";
@@ -445,18 +448,34 @@ async function processFoodLog(
     return;
   }
 
-  const draft = await parseFoodDraft(rawText, language);
+  const fallback = await resolveFoodFallback({
+    userId,
+    rawInput: rawText,
+    language,
+  });
 
-  if (draft.status !== "ok") {
+  if (fallback.status !== "resolved") {
     await ctx.reply(t(language, "food.parseFailed"));
     return;
   }
 
-  await continueFoodLogWithSelection(ctx, userId, telegramUserId, language, {
+  const meal = calculateMeal([
+    calculateMealItem(
+      fallback.food,
+      fallback.parsedItem,
+      getFoodDisplayName(fallback.food, language),
+    ),
+  ]);
+
+  await createMealEntry({
+    userId,
+    telegramUserId,
     rawText,
-    parsedItems: draft.items,
-    selectedFoodIdsByIndex: {},
+    meal,
   });
+
+  const dailySummary = await getDailyNutritionSummary(userId);
+  await ctx.reply(formatMealRecorded(language, meal, dailySummary));
 }
 
 async function parseDeterministicMealForUser(
@@ -528,7 +547,12 @@ async function continueFoodLogWithSelection(
       continue;
     }
 
-    const match = matchFoodCandidate(item, foods);
+    const match = await resolveParsedFoodItemWithFallback({
+      item,
+      foods,
+      userId,
+      language,
+    });
 
     if (match.status === "not_found") {
       unmatchedItems.push(item);
@@ -550,7 +574,7 @@ async function continueFoodLogWithSelection(
     calculatedItems.push(
       calculateMealItem(
         match.food,
-        item,
+        match.parsedItem,
         getFoodDisplayName(match.food, language),
       ),
     );
