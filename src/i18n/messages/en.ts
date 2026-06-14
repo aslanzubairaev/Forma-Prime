@@ -13,7 +13,7 @@ export const en = {
 
   "start.welcomeBack": "Welcome back.",
 
-  "menu.title": "Forma Prime",
+  "menu.title": "NordWolf",
   "menu.description": "Choose what you want to log or review.",
   "menu.button.nutrition": "Nutrition",
   "menu.button.workout": "Workout",

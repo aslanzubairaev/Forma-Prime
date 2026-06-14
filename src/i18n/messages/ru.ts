@@ -15,7 +15,7 @@ export const ru = {
 
   "start.welcomeBack": "С возвращением.",
 
-  "menu.title": "Forma Prime",
+  "menu.title": "NordWolf",
   "menu.description": "Выберите, что записать или посмотреть.",
   "menu.button.nutrition": "Питание",
   "menu.button.workout": "Тренировки",

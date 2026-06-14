@@ -20,7 +20,7 @@ type SeedFood = {
 
 const foodCatalogSource = {
   sourceType: "CURATED_GENERIC",
-  sourceName: "Forma Prime starter catalog v1",
+  sourceName: "NordWolf starter catalog v1",
   sourceUrl: "https://fdc.nal.usda.gov/",
   sourceUpdatedAt: new Date("2026-06-11T00:00:00.000Z"),
   isVerified: true,
