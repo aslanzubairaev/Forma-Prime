@@ -1,4 +1,7 @@
-import { ConversationStep, ReminderType } from "@prisma/client";
+import type {
+  ConversationStep as ConversationStepType,
+  ReminderType as ReminderTypeType,
+} from "@prisma/client";
 import { InlineKeyboard, type Bot, type Context, type NextFunction } from "grammy";
 
 import {
@@ -7,6 +10,10 @@ import {
   setConversationState,
 } from "../conversation/conversation-state.service.js";
 import type { ConversationPayload } from "../conversation/conversation-state.types.js";
+import {
+  ConversationStep,
+  ReminderType,
+} from "../db/prisma-client.js";
 import { normalizeLanguage, t, type SupportedLanguage } from "../i18n/index.js";
 import { getProfileByUserId } from "../onboarding/onboarding.service.js";
 import {
@@ -31,7 +38,7 @@ const reminderTypes = [
   ReminderType.WEEKLY_CHECKIN,
 ];
 
-const reminderSteps = new Set<ConversationStep>([
+const reminderSteps = new Set<ConversationStepType>([
   ConversationStep.REMINDER_TYPE,
   ConversationStep.REMINDER_ACTION,
   ConversationStep.REMINDER_WEEKDAY,
@@ -310,7 +317,7 @@ async function startReminderTypeSelection(
 function formatReminderPreferences(
   language: SupportedLanguage,
   preferences: Array<{
-    type: ReminderType;
+    type: ReminderTypeType;
     isEnabled: boolean;
     hourLocal: number;
     minuteLocal: number;
@@ -375,7 +382,7 @@ function formatReminderTime(hour: number, minute: number): string {
 
 function formatReminderDays(
   language: SupportedLanguage,
-  type: ReminderType,
+  type: ReminderTypeType,
   daysOfWeek: number[],
 ): string {
   if (type !== ReminderType.WEEKLY_CHECKIN) {
@@ -393,7 +400,7 @@ function formatReminderDays(
 
 function getReminderTypeLabel(
   language: SupportedLanguage,
-  type: ReminderType,
+  type: ReminderTypeType,
 ): string {
   return t(language, reminderTypeLabelKey[type]);
 }
@@ -425,7 +432,7 @@ function readReminderSetupPayload(
   return result;
 }
 
-function readReminderType(value: string): ReminderType | null {
+function readReminderType(value: string): ReminderTypeType | null {
   if (
     value === ReminderType.FOOD_LOG ||
     value === ReminderType.WORKOUT_LOG ||
@@ -458,7 +465,7 @@ async function getReminderIdentity(ctx: Context): Promise<{
   };
 }
 
-const reminderTypeLabelKey: Record<ReminderType, Parameters<typeof t>[1]> = {
+const reminderTypeLabelKey: Record<ReminderTypeType, Parameters<typeof t>[1]> = {
   [ReminderType.FOOD_LOG]: "reminders.type.food",
   [ReminderType.WORKOUT_LOG]: "reminders.type.workout",
   [ReminderType.WEEKLY_CHECKIN]: "reminders.type.weeklyCheckin",

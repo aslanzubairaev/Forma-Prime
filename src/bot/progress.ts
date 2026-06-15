@@ -1,4 +1,4 @@
-import { ConversationStep } from "@prisma/client";
+import type { ConversationStep as ConversationStepType } from "@prisma/client";
 import { InlineKeyboard, type Bot, type Context, type NextFunction } from "grammy";
 
 import {
@@ -8,6 +8,7 @@ import {
   setConversationState,
 } from "../conversation/conversation-state.service.js";
 import type { ConversationPayload } from "../conversation/conversation-state.types.js";
+import { ConversationStep } from "../db/prisma-client.js";
 import { normalizeLanguage, t, type SupportedLanguage } from "../i18n/index.js";
 import { getProfileByUserId } from "../onboarding/onboarding.service.js";
 import {
@@ -28,7 +29,7 @@ import { upsertTelegramUser } from "../users/user.service.js";
 const checkinRatingPattern = /^checkin:(nutrition|training|energy):([1-5])$/;
 const checkinSkipNotesAction = "checkin:notes:skip";
 
-const progressSteps = new Set<ConversationStep>([
+const progressSteps = new Set<ConversationStepType>([
   ConversationStep.WEIGHT_ENTRY,
   ConversationStep.CHECKIN_WEIGHT,
   ConversationStep.CHECKIN_NUTRITION,
@@ -271,7 +272,7 @@ export async function saveManualWeight(
   rawWeight: string,
   options: {
     repeatPromptOnInvalid?: boolean;
-    requireStepClaim?: ConversationStep;
+    requireStepClaim?: ConversationStepType;
     claimStep?: typeof claimConversationStep;
     logWeight?: typeof logBodyweight;
     resetState?: typeof resetConversationState;
@@ -322,7 +323,7 @@ async function applyCheckinRating(
   ctx: Context,
   userId: string,
   language: SupportedLanguage,
-  step: ConversationStep,
+  step: ConversationStepType,
   payload: WeeklyCheckinPayload,
   rating: number,
 ): Promise<void> {
@@ -400,7 +401,7 @@ export async function finishCheckin(
 
 async function askForCurrentCheckinStep(
   ctx: Context,
-  step: ConversationStep,
+  step: ConversationStepType,
   language: SupportedLanguage,
 ): Promise<void> {
   if (step === ConversationStep.CHECKIN_NUTRITION) {
@@ -437,7 +438,7 @@ function ratingKeyboard(field: "nutrition" | "training" | "energy"): InlineKeybo
   );
 }
 
-function expectedRatingStep(field: string): ConversationStep | null {
+function expectedRatingStep(field: string): ConversationStepType | null {
   if (field === "nutrition") {
     return ConversationStep.CHECKIN_NUTRITION;
   }

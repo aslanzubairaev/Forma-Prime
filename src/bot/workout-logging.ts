@@ -1,4 +1,3 @@
-import { ConversationStep } from "@prisma/client";
 import { InlineKeyboard, type Bot, type Context, type NextFunction } from "grammy";
 
 import {
@@ -8,6 +7,7 @@ import {
   setConversationState,
 } from "../conversation/conversation-state.service.js";
 import type { ConversationPayload } from "../conversation/conversation-state.types.js";
+import { ConversationStep } from "../db/prisma-client.js";
 import { normalizeLanguage, t, type SupportedLanguage } from "../i18n/index.js";
 import { getProfileByUserId } from "../onboarding/onboarding.service.js";
 import { upsertTelegramUser } from "../users/user.service.js";

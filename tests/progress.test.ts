@@ -5,7 +5,7 @@ import {
   BodyweightCheckinSource,
   CheckinStatusLabel,
   ConversationStep,
-} from "@prisma/client";
+} from "../src/db/prisma-client.js";
 
 process.env.BOT_TOKEN = "test-token";
 process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres";

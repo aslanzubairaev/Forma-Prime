@@ -1,6 +1,7 @@
-import { ReminderType, type Prisma } from "@prisma/client";
+import type { Prisma, ReminderType as ReminderTypeType } from "@prisma/client";
 
 import { prisma } from "../db/prisma.js";
+import { ReminderType } from "../db/prisma-client.js";
 import {
   getZonedClock,
   getZonedScheduledMinuteWindow,
@@ -15,7 +16,7 @@ import type {
 export const allWeekdays = [0, 1, 2, 3, 4, 5, 6];
 
 const defaultReminderConfig: Record<
-  ReminderType,
+  ReminderTypeType,
   {
     hour: number;
     minute: number;
@@ -72,7 +73,7 @@ export function parseReminderTime(rawValue: string): ReminderTimeParseResult {
 }
 
 export function buildReminderPreferenceData(input: {
-  type: ReminderType;
+  type: ReminderTypeType;
   isEnabled: boolean;
   hour: number;
   minute: number;
@@ -103,7 +104,7 @@ export async function getReminderPreferences(userId: string) {
 
 export async function upsertReminderPreference(input: {
   userId: string;
-  type: ReminderType;
+  type: ReminderTypeType;
   isEnabled: boolean;
   hour: number;
   minute: number;
@@ -133,7 +134,7 @@ export async function upsertReminderPreference(input: {
 
 export async function disableReminderPreference(input: {
   userId: string;
-  type: ReminderType;
+  type: ReminderTypeType;
 }) {
   const defaults = defaultReminderConfig[input.type];
 
@@ -214,7 +215,7 @@ export async function markReminderSent(
 }
 
 export function getReminderDeliveryTextKey(
-  type: ReminderType,
+  type: ReminderTypeType,
 ):
   | "reminders.delivery.food"
   | "reminders.delivery.workout"

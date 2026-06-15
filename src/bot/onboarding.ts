@@ -1,8 +1,8 @@
-import {
-  ActivityLevel,
-  ConversationStep,
-  Gender,
-  GoalType,
+import type {
+  ActivityLevel as ActivityLevelType,
+  ConversationStep as ConversationStepType,
+  Gender as GenderType,
+  GoalType as GoalTypeType,
 } from "@prisma/client";
 import { InlineKeyboard, type Bot, type Context, type NextFunction } from "grammy";
 
@@ -12,6 +12,12 @@ import {
   setConversationState,
 } from "../conversation/conversation-state.service.js";
 import type { ConversationPayload } from "../conversation/conversation-state.types.js";
+import {
+  ActivityLevel,
+  ConversationStep,
+  Gender,
+  GoalType,
+} from "../db/prisma-client.js";
 import {
   isSupportedLanguage,
   normalizeLanguage,
@@ -50,7 +56,7 @@ const goalOptions = [
   GoalType.RECOMPOSITION,
 ] as const;
 
-const onboardingSteps = new Set<ConversationStep>([
+const onboardingSteps = new Set<ConversationStepType>([
   ConversationStep.ONBOARDING_LANGUAGE,
   ConversationStep.ONBOARDING_GENDER,
   ConversationStep.ONBOARDING_AGE,
@@ -62,21 +68,21 @@ const onboardingSteps = new Set<ConversationStep>([
   ConversationStep.ONBOARDING_CONFIRMATION,
 ]);
 
-const genderLabelKey: Record<Gender, Parameters<typeof t>[1]> = {
+const genderLabelKey: Record<GenderType, Parameters<typeof t>[1]> = {
   [Gender.MALE]: "option.gender.male",
   [Gender.FEMALE]: "option.gender.female",
   [Gender.OTHER]: "option.gender.other",
   [Gender.UNSPECIFIED]: "option.gender.unspecified",
 };
 
-const activityLabelKey: Record<ActivityLevel, Parameters<typeof t>[1]> = {
+const activityLabelKey: Record<ActivityLevelType, Parameters<typeof t>[1]> = {
   [ActivityLevel.SEDENTARY]: "option.activity.sedentary",
   [ActivityLevel.LIGHT]: "option.activity.light",
   [ActivityLevel.MODERATE]: "option.activity.moderate",
   [ActivityLevel.HIGH]: "option.activity.high",
 };
 
-const goalLabelKey: Record<GoalType, Parameters<typeof t>[1]> = {
+const goalLabelKey: Record<GoalTypeType, Parameters<typeof t>[1]> = {
   [GoalType.FAT_LOSS]: "option.goal.fatLoss",
   [GoalType.MAINTENANCE]: "option.goal.maintenance",
   [GoalType.MUSCLE_GAIN]: "option.goal.muscleGain",
@@ -338,7 +344,7 @@ async function handleOnboardingText(
 
 async function askForStep(
   ctx: Context,
-  step: ConversationStep,
+  step: ConversationStepType,
   payload: PartialOnboardingPayload,
   fallbackLanguage: SupportedLanguage,
 ): Promise<void> {
@@ -510,7 +516,7 @@ function buildOnboardingSummary(
 
 function getEarliestMissingOnboardingStep(
   payload: PartialOnboardingPayload,
-): ConversationStep {
+): ConversationStepType {
   if (payload.preferredLanguage === undefined) {
     return ConversationStep.ONBOARDING_LANGUAGE;
   }
@@ -548,7 +554,7 @@ function getEarliestMissingOnboardingStep(
 
 async function advanceOnboarding(
   userId: string,
-  step: ConversationStep,
+  step: ConversationStepType,
   payload: PartialOnboardingPayload,
 ): Promise<void> {
   await setConversationState(userId, step, payload as ConversationPayload);
@@ -641,17 +647,17 @@ function parseNumberInRange(
   return parsed >= min && parsed <= max ? parsed : null;
 }
 
-function isGender(value: unknown): value is Gender {
-  return typeof value === "string" && Object.values(Gender).includes(value as Gender);
+function isGender(value: unknown): value is GenderType {
+  return typeof value === "string" && Object.values(Gender).includes(value as GenderType);
 }
 
-function isActivityLevel(value: unknown): value is ActivityLevel {
+function isActivityLevel(value: unknown): value is ActivityLevelType {
   return (
     typeof value === "string" &&
-    Object.values(ActivityLevel).includes(value as ActivityLevel)
+    Object.values(ActivityLevel).includes(value as ActivityLevelType)
   );
 }
 
-function isGoalType(value: unknown): value is GoalType {
-  return typeof value === "string" && Object.values(GoalType).includes(value as GoalType);
+function isGoalType(value: unknown): value is GoalTypeType {
+  return typeof value === "string" && Object.values(GoalType).includes(value as GoalTypeType);
 }

@@ -1,6 +1,7 @@
-import { ConversationStep, Prisma } from "@prisma/client";
+import type { ConversationStep as ConversationStepType } from "@prisma/client";
 
 import { prisma } from "../db/prisma.js";
+import { ConversationStep, Prisma } from "../db/prisma-client.js";
 import type {
   ConversationPayload,
   ConversationStateSnapshot,
@@ -23,7 +24,7 @@ export async function getConversationState(
 
 export async function setConversationState(
   userId: string,
-  step: ConversationStep,
+  step: ConversationStepType,
   payload?: ConversationPayload,
 ): Promise<void> {
   await prisma.conversationState.upsert({
@@ -42,7 +43,7 @@ export async function setConversationState(
 
 export async function claimConversationStep(
   userId: string,
-  step: ConversationStep,
+  step: ConversationStepType,
 ): Promise<boolean> {
   const result = await prisma.conversationState.updateMany({
     where: {

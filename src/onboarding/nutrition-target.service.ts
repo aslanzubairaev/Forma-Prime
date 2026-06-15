@@ -1,5 +1,13 @@
-import { ActivityLevel, Gender, GoalType } from "@prisma/client";
+import type {
+  ActivityLevel as ActivityLevelType,
+  GoalType as GoalTypeType,
+} from "@prisma/client";
 
+import {
+  ActivityLevel,
+  Gender,
+  GoalType,
+} from "../db/prisma-client.js";
 import type { CompleteOnboardingPayload } from "./onboarding.types.js";
 
 export const nutritionCalculationMethod = "MIFFLIN_ST_JEOR";
@@ -9,19 +17,19 @@ export type CalculatedNutritionTargets = {
   proteinTargetG: number;
   fatTargetG: number;
   carbsTargetG: number;
-  goalType: GoalType;
+  goalType: GoalTypeType;
   calculationMethod: typeof nutritionCalculationMethod;
   isActive: true;
 };
 
-const activityMultiplierByLevel: Record<ActivityLevel, number> = {
+const activityMultiplierByLevel: Record<ActivityLevelType, number> = {
   [ActivityLevel.SEDENTARY]: 1.2,
   [ActivityLevel.LIGHT]: 1.375,
   [ActivityLevel.MODERATE]: 1.55,
   [ActivityLevel.HIGH]: 1.725,
 };
 
-const goalCaloriesMultiplierByGoal: Record<GoalType, number> = {
+const goalCaloriesMultiplierByGoal: Record<GoalTypeType, number> = {
   [GoalType.FAT_LOSS]: 0.85,
   [GoalType.MAINTENANCE]: 1,
   [GoalType.MUSCLE_GAIN]: 1.1,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { WorkoutSessionStatus } from "@prisma/client";
+import { WorkoutSessionStatus } from "../src/db/prisma-client.js";
 
 process.env.BOT_TOKEN = "test-token";
 process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres";

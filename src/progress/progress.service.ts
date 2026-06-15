@@ -1,11 +1,15 @@
+import type {
+  BodyweightCheckinSource as BodyweightCheckinSourceType,
+  CheckinStatusLabel as CheckinStatusLabelType,
+  Prisma,
+} from "@prisma/client";
+
+import { prisma } from "../db/prisma.js";
 import {
   BodyweightCheckinSource,
   CheckinStatusLabel,
   WorkoutSessionStatus,
-  type Prisma,
-} from "@prisma/client";
-
-import { prisma } from "../db/prisma.js";
+} from "../db/prisma-client.js";
 import { t, type SupportedLanguage } from "../i18n/index.js";
 import {
   getUserTimeZone,
@@ -197,7 +201,7 @@ export function buildWeeklySummary(input: {
 export function buildBodyweightCheckinCreateData(input: {
   userId: string;
   weightKg: number;
-  source: BodyweightCheckinSource;
+  source: BodyweightCheckinSourceType;
   recordedAt?: Date;
   notes?: string | null;
 }): Prisma.BodyweightCheckinCreateInput {
@@ -222,14 +226,14 @@ export function buildBodyweightCheckinCreateData(input: {
 export async function logBodyweight(input: {
   userId: string;
   weightKg: number;
-  source?: BodyweightCheckinSource;
+  source?: BodyweightCheckinSourceType;
   recordedAt?: Date;
   notes?: string | null;
 }) {
   const dataInput: {
     userId: string;
     weightKg: number;
-    source: BodyweightCheckinSource;
+    source: BodyweightCheckinSourceType;
     recordedAt?: Date;
     notes?: string | null;
   } = {
@@ -259,7 +263,7 @@ export function buildWeeklyCheckinCreateData(input: {
   trainingAdherence: number;
   energy: number;
   notes: string | null;
-  statusLabel: CheckinStatusLabel;
+  statusLabel: CheckinStatusLabelType;
 }): Prisma.WeeklyCheckinCreateInput {
   return {
     user: {
@@ -397,7 +401,7 @@ export function getWeekStartDate(date: Date, timeZone?: string): Date {
 export function getWeeklyStatusLabel(input: {
   mealCount: number;
   workoutCount: number;
-}): CheckinStatusLabel {
+}): CheckinStatusLabelType {
   if (input.mealCount === 0 && input.workoutCount === 0) {
     return CheckinStatusLabel.INSUFFICIENT_DATA;
   }
@@ -512,7 +516,7 @@ function formatSignedDelta(value: number): string {
   return `${roundedValue > 0 ? "+" : ""}${roundedValue.toFixed(1)}`;
 }
 
-const statusLabelKey: Record<CheckinStatusLabel, Parameters<typeof t>[1]> = {
+const statusLabelKey: Record<CheckinStatusLabelType, Parameters<typeof t>[1]> = {
   [CheckinStatusLabel.ON_TRACK]: "checkin.status.onTrack",
   [CheckinStatusLabel.NEEDS_CONSISTENCY]: "checkin.status.needsConsistency",
   [CheckinStatusLabel.INSUFFICIENT_DATA]: "checkin.status.insufficientData",

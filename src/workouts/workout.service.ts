@@ -1,6 +1,10 @@
-import { WorkoutSessionStatus, type Prisma } from "@prisma/client";
+import type {
+  Prisma,
+  WorkoutSessionStatus as WorkoutSessionStatusType,
+} from "@prisma/client";
 
 import { prisma } from "../db/prisma.js";
+import { WorkoutSessionStatus } from "../db/prisma-client.js";
 import { getUserDayRange } from "../meals/meals.service.js";
 import { normalizeExerciseName } from "./workout-parser.js";
 import type {
@@ -10,7 +14,7 @@ import type {
   WorkoutSessionWithLogs,
 } from "./workout.types.js";
 
-const activeWorkoutStatuses: WorkoutSessionStatus[] = [
+const activeWorkoutStatuses: WorkoutSessionStatusType[] = [
   WorkoutSessionStatus.PLANNED,
   WorkoutSessionStatus.IN_PROGRESS,
 ];
@@ -25,12 +29,12 @@ export type LatestWorkoutLog = Prisma.ExerciseLogGetPayload<{
   };
 }>;
 
-export function isActiveWorkoutStatus(status: WorkoutSessionStatus): boolean {
+export function isActiveWorkoutStatus(status: WorkoutSessionStatusType): boolean {
   return activeWorkoutStatuses.includes(status);
 }
 
 export function selectActiveWorkoutSession<T extends {
-  status: WorkoutSessionStatus;
+  status: WorkoutSessionStatusType;
   startedAt: Date;
 }>(sessions: T[]): T | null {
   return (
@@ -318,7 +322,7 @@ export function buildLatestWorkoutLogDeleteWhere(input: {
 
 export function shouldDeleteEmptyWorkoutSession(input: {
   remainingLogCount: number;
-  status: WorkoutSessionStatus;
+  status: WorkoutSessionStatusType;
 }): boolean {
   return (
     input.remainingLogCount === 0 &&
@@ -493,7 +497,7 @@ export function getNextSetNumber(
   return maxSetNumber + 1;
 }
 
-export function canAcceptWorkoutLog(session: { status: WorkoutSessionStatus }): boolean {
+export function canAcceptWorkoutLog(session: { status: WorkoutSessionStatusType }): boolean {
   return isActiveWorkoutStatus(session.status);
 }
 
